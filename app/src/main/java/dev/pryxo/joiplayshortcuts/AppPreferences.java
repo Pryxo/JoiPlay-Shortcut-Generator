@@ -8,6 +8,7 @@ import android.net.Uri;
 import java.util.Collections;
 import java.util.EnumSet;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Set;
 
@@ -20,6 +21,7 @@ public final class AppPreferences {
     public enum ViewMode { LIST, GRID }
 
     static final String FILE = "settings";
+    static final String PORTABLE_FILE = "portable_settings";
     private static final String THEME = "theme";
     private static final String ACCENT = "accent";
     private static final String FORMAT = "shortcut_format";
@@ -34,13 +36,31 @@ public final class AppPreferences {
     private static final String CUSTOM_ICON_PREFIX = "custom_icon_";
 
     private final SharedPreferences preferences;
+    private final SharedPreferences portablePreferences;
     private final BackupManager backupManager;
+    private Runnable portableSettingsChangedListener;
 
     public AppPreferences(Context context) {
         Context appContext = context.getApplicationContext();
         preferences = appContext.getSharedPreferences(FILE, Context.MODE_PRIVATE);
+        portablePreferences = appContext.getSharedPreferences(PORTABLE_FILE, Context.MODE_PRIVATE);
         backupManager = new BackupManager(appContext);
+        if (!hasPortableSettings(preferences) && !portablePreferences.getAll().isEmpty()) {
+            restorePortableSettings(portablePreferences.getAll());
+        } else {
+            boolean changed = !portableSettings().equals(portablePreferences.getAll());
+            syncPortablePreferences();
+            if (changed) backupManager.dataChanged();
+        }
         migrateGeneratedIds();
+    }
+
+    public void setPortableSettingsChangedListener(Runnable listener) {
+        portableSettingsChangedListener = listener;
+    }
+
+    public boolean hasSavedPortableSettings() {
+        return hasPortableSettings(preferences);
     }
 
     public ThemeMode theme() {
@@ -48,7 +68,7 @@ public final class AppPreferences {
     }
 
     public void setTheme(ThemeMode mode) {
-        save(preferences.edit().putString(THEME, mode.name()));
+        savePortable(preferences.edit().putString(THEME, mode.name()));
     }
 
     public AccentColor accentColor() {
@@ -56,7 +76,7 @@ public final class AppPreferences {
     }
 
     public void setAccentColor(AccentColor color) {
-        save(preferences.edit().putString(ACCENT, color.name()));
+        savePortable(preferences.edit().putString(ACCENT, color.name()));
     }
 
     public ShortcutFormat shortcutFormat() {
@@ -66,7 +86,7 @@ public final class AppPreferences {
     }
 
     public void setShortcutFormat(ShortcutFormat format) {
-        save(preferences.edit().putString(FORMAT, format.name()));
+        savePortable(preferences.edit().putString(FORMAT, format.name()));
     }
 
     public SortOrder sortOrder() {
@@ -74,7 +94,7 @@ public final class AppPreferences {
     }
 
     public void setSortOrder(SortOrder order) {
-        save(preferences.edit().putString(SORT, order.name()));
+        savePortable(preferences.edit().putString(SORT, order.name()));
     }
 
     public TapAction tapAction() {
@@ -82,7 +102,7 @@ public final class AppPreferences {
     }
 
     public void setTapAction(TapAction action) {
-        save(preferences.edit().putString(TAP, action.name()));
+        savePortable(preferences.edit().putString(TAP, action.name()));
     }
 
     public Uri outputTree() {
@@ -101,7 +121,7 @@ public final class AppPreferences {
     }
 
     public void setShowFolderEntries(boolean show) {
-        save(preferences.edit().putBoolean(SHOW_FOLDERS, show));
+        savePortable(preferences.edit().putBoolean(SHOW_FOLDERS, show));
     }
 
     public ViewMode viewMode() {
@@ -109,7 +129,39 @@ public final class AppPreferences {
     }
 
     public void setViewMode(ViewMode mode) {
-        save(preferences.edit().putString(VIEW_MODE, mode.name()));
+        savePortable(preferences.edit().putString(VIEW_MODE, mode.name()));
+    }
+
+    public Map<String, String> portableSettings() {
+        Map<String, String> result = new LinkedHashMap<>();
+        result.put(THEME, theme().name());
+        result.put(ACCENT, accentColor().name());
+        result.put(FORMAT, shortcutFormat().name());
+        result.put(SORT, sortOrder().name());
+        result.put(TAP, tapAction().name());
+        result.put(SHOW_FOLDERS, Boolean.toString(showFolderEntries()));
+        result.put(VIEW_MODE, viewMode().name());
+        return result;
+    }
+
+    public boolean restorePortableSettings(Map<String, ?> values) {
+        if (values == null || values.isEmpty()) return false;
+        SharedPreferences.Editor editor = preferences.edit();
+        boolean found = false;
+        found |= putEnum(editor, values, THEME, ThemeMode.class);
+        found |= putEnum(editor, values, ACCENT, AccentColor.class);
+        found |= putEnum(editor, values, FORMAT, ShortcutFormat.class);
+        found |= putEnum(editor, values, SORT, SortOrder.class);
+        found |= putEnum(editor, values, TAP, TapAction.class);
+        found |= putEnum(editor, values, VIEW_MODE, ViewMode.class);
+        Object folders = values.get(SHOW_FOLDERS);
+        if (folders != null && ("true".equalsIgnoreCase(folders.toString())
+                || "false".equalsIgnoreCase(folders.toString()))) {
+            editor.putBoolean(SHOW_FOLDERS, Boolean.parseBoolean(folders.toString()));
+            found = true;
+        }
+        if (found) savePortable(editor);
+        return found;
     }
 
     public Uri customIcon(String gameId) {
@@ -190,7 +242,42 @@ public final class AppPreferences {
     }
 
     private void save(SharedPreferences.Editor editor) {
-        if (editor.commit()) backupManager.dataChanged();
+        editor.commit();
+    }
+
+    private void savePortable(SharedPreferences.Editor editor) {
+        if (!editor.commit()) return;
+        syncPortablePreferences();
+        backupManager.dataChanged();
+        if (portableSettingsChangedListener != null) portableSettingsChangedListener.run();
+    }
+
+    private void syncPortablePreferences() {
+        SharedPreferences.Editor editor = portablePreferences.edit().clear();
+        for (Map.Entry<String, String> entry : portableSettings().entrySet()) {
+            editor.putString(entry.getKey(), entry.getValue());
+        }
+        editor.commit();
+    }
+
+    private static boolean hasPortableSettings(SharedPreferences source) {
+        return source.contains(THEME) || source.contains(ACCENT) || source.contains(FORMAT)
+                || source.contains(SORT) || source.contains(TAP) || source.contains(SHOW_FOLDERS)
+                || source.contains(VIEW_MODE);
+    }
+
+    private static <T extends Enum<T>> boolean putEnum(SharedPreferences.Editor editor,
+                                                        Map<String, ?> values,
+                                                        String key,
+                                                        Class<T> type) {
+        Object raw = values.get(key);
+        if (raw == null) return false;
+        try {
+            editor.putString(key, Enum.valueOf(type, raw.toString()).name());
+            return true;
+        } catch (IllegalArgumentException ignored) {
+            return false;
+        }
     }
 
     private static <T extends Enum<T>> T enumValue(Class<T> type, String value, T fallback) {

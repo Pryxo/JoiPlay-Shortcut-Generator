@@ -56,8 +56,11 @@ Release builds are unsigned unless Android signing is configured locally.
   including format-specific badges and a live generated/total count.
 - Offers list/grid views, sorting, themes, custom icons, and configurable tap
   behavior.
-- Requests an Android settings backup after every change so supported devices
-  can restore preferences when the app is reinstalled.
+- Saves settings immediately, requests a settings-only Android backup after
+  every change, and mirrors portable settings to the selected JoiPlay folder.
+  After reinstalling, select the same JoiPlay folder to restore that snapshot.
+  Android revokes folder and custom-image access on uninstall, so those grants
+  must be selected again.
 
 ## Frontend shortcut formats
 

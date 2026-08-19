@@ -51,6 +51,7 @@ import java.util.Arrays;
 import java.util.Date;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -66,6 +67,7 @@ public final class MainActivity extends Activity {
     private Palette palette;
     private JoiPlayRepository repository;
     private ShortcutExporter exporter;
+    private SettingsFileStore settingsFileStore;
     private GameArtLoader artLoader;
     private ExecutorService executor;
     private ExecutorService artExecutor;
@@ -90,13 +92,16 @@ public final class MainActivity extends Activity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        executor = Executors.newSingleThreadExecutor();
+        artExecutor = Executors.newFixedThreadPool(2);
         preferences = new AppPreferences(this);
         palette = Palette.from(this, preferences.theme(), preferences.accentColor());
         repository = new JoiPlayRepository(this);
         exporter = new ShortcutExporter(this);
+        settingsFileStore = new SettingsFileStore(this);
         artLoader = new GameArtLoader(this, preferences);
-        executor = Executors.newSingleThreadExecutor();
-        artExecutor = Executors.newFixedThreadPool(2);
+        preferences.setPortableSettingsChangedListener(this::scheduleSettingsBackup);
+        scheduleSettingsBackup();
         setContentView(buildShell());
         configureSystemBars();
         showLibrary();
@@ -412,9 +417,11 @@ public final class MainActivity extends Activity {
         card.addView(Ui.spacer(this, 1, 5));
         card.addView(Ui.text(this, "Tap to launch. Hold any game for details and shortcut tools.", 12, palette.textMuted, false));
         card.addView(Ui.spacer(this, 1, 16));
-        TextView exportAll = Ui.pillButton(this, palette,
-                "Generate all missing ." + ShortcutFileFactory.extension(preferences.shortcutFormat())
-                        + " shortcut files", true);
+        String bulkAction = preferences.outputTree() == null
+                ? "Select JoiPlay folder"
+                : "Generate all missing ." + ShortcutFileFactory.extension(preferences.shortcutFormat())
+                        + " shortcut files";
+        TextView exportAll = Ui.pillButton(this, palette, bulkAction, true);
         exportAll.setOnClickListener(view -> exportAll(games));
         card.addView(exportAll, Ui.matchWrap());
         return card;
@@ -1165,25 +1172,26 @@ public final class MainActivity extends Activity {
                 }
             });
         } else if (requestCode == REQUEST_OUTPUT_TREE) {
-            if (rememberOutputFolderSelection) {
+            boolean shouldExport = exportAllAfterFolderSelection;
+            boolean shouldRemember = rememberOutputFolderSelection;
+            boolean shouldRestore = preferences.outputTree() == null
+                    && !preferences.hasSavedPortableSettings();
+            exportAllAfterFolderSelection = false;
+            rememberOutputFolderSelection = false;
+            if (shouldRemember) {
                 try {
                     getContentResolver().takePersistableUriPermission(
                             uri,
                             Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION
                     );
-                    preferences.setOutputTree(uri);
-                    if (!exportAllAfterFolderSelection) libraryResult = null;
                 } catch (SecurityException ignored) {
                     Toast.makeText(this, "This folder cannot be remembered", Toast.LENGTH_LONG).show();
+                    return;
                 }
+                restoreAndRememberOutputFolder(uri, shouldRestore, shouldExport);
+            } else if (shouldExport && libraryResult != null && libraryResult.isReady()) {
+                exportAllToFolder(uri, new ArrayList<>(libraryResult.games));
             }
-            boolean shouldExport = exportAllAfterFolderSelection;
-            exportAllAfterFolderSelection = false;
-            rememberOutputFolderSelection = false;
-            if (shouldExport && libraryResult != null && libraryResult.isReady()) {
-                exportAllToFolder(uri, libraryResult.games);
-            }
-            if (currentScreen == Screen.SETTINGS) showSettings();
         } else if (requestCode == REQUEST_CUSTOM_ICON && pendingCustomIconGame != null) {
             Game game = pendingCustomIconGame;
             pendingCustomIconGame = null;
@@ -1196,6 +1204,61 @@ public final class MainActivity extends Activity {
             Toast.makeText(this, "Custom icon saved for " + game.title, Toast.LENGTH_SHORT).show();
             if (currentScreen == Screen.LIBRARY) renderLibrary(); else showSettings();
         }
+    }
+
+    private void restoreAndRememberOutputFolder(Uri uri, boolean shouldRestore, boolean shouldExport) {
+        List<Game> games = shouldExport && libraryResult != null && libraryResult.isReady()
+                ? new ArrayList<>(libraryResult.games) : null;
+        executor.execute(() -> {
+            boolean restored = false;
+            if (shouldRestore) {
+                try {
+                    restored = preferences.restorePortableSettings(settingsFileStore.read(uri));
+                } catch (Exception ignored) {
+                    // A missing or unreadable snapshot should not prevent folder selection.
+                }
+            }
+            preferences.setOutputTree(uri);
+            try {
+                settingsFileStore.write(uri, preferences.portableSettings());
+            } catch (Exception ignored) {
+                // Android's backup service remains available if the provider rejects this file.
+            }
+            boolean restoredSettings = restored;
+            runOnUiThread(() -> {
+                if (!shouldExport) libraryResult = null;
+                if (restoredSettings) {
+                    rebuildCurrentScreen();
+                    Toast.makeText(this, "Settings restored from the JoiPlay folder", Toast.LENGTH_SHORT).show();
+                } else if (currentScreen == Screen.SETTINGS) {
+                    showSettings();
+                } else if (currentScreen == Screen.LIBRARY) {
+                    renderLibrary();
+                }
+                if (games != null) exportAllToFolder(uri, games);
+            });
+        });
+    }
+
+    private void rebuildCurrentScreen() {
+        Screen destination = currentScreen;
+        palette = Palette.from(this, preferences.theme(), preferences.accentColor());
+        setContentView(buildShell());
+        configureSystemBars();
+        if (destination == Screen.SETTINGS) showSettings(); else showLibrary();
+    }
+
+    private void scheduleSettingsBackup() {
+        Uri tree = preferences == null ? null : preferences.outputTree();
+        if (tree == null || settingsFileStore == null || executor == null || executor.isShutdown()) return;
+        Map<String, String> snapshot = preferences.portableSettings();
+        executor.execute(() -> {
+            try {
+                settingsFileStore.write(tree, snapshot);
+            } catch (Exception ignored) {
+                // Folder access can be revoked independently; cloud backup still applies.
+            }
+        });
     }
 
     private void launchGame(Game game) {
