@@ -20,7 +20,7 @@ public final class ShortcutFileFactoryTest {
     @Test
     public void createsFormatSpecificNames() {
         Game game = game("id", "Moon / Star: Redux?");
-        assertEquals("Moon  Star Redux.dpt", ShortcutFileFactory.fileName(game, AppPreferences.ShortcutFormat.DPT));
+        assertEquals("Moon  Star Redux.jp", ShortcutFileFactory.fileName(game, AppPreferences.ShortcutFormat.JP));
         assertEquals("Moon  Star Redux.joiplay", ShortcutFileFactory.fileName(game, AppPreferences.ShortcutFormat.JOIPLAY));
     }
 
@@ -39,4 +39,3 @@ public final class ShortcutFileFactoryTest {
         assertTrue(ShortcutFileFactory.sanitizeFileName("x".repeat(200)).length() <= 120);
     }
 }
-

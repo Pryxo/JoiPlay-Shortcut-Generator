@@ -13,7 +13,10 @@ account, ad, analytics SDK, or network permission.
 - Launches a selected game directly in JoiPlay.
 - Long-press details with game ID, runtime, path, date, and play count.
 - Generates one shortcut or the complete library in a single pass.
-- Supports generic `.dpt` and dedicated `.joiplay` Daijishō templates.
+- Supports compact `.jp` and dedicated `.joiplay` shortcut files.
+- Uses JoiPlay game artwork with per-game custom icon overrides.
+- Offers list and box-art library layouts with generated-shortcut indicators.
+- Includes purple-first accent colors and animated navigation/refresh states.
 - Pins individual games to the Android home screen.
 - Remembers an output folder through Android's Storage Access Framework.
 - System, light, and dark appearance modes.
@@ -98,4 +101,3 @@ system, provider integration, assets, and product identity.
 Before publishing third-party or modified JoiPlay APKs, verify that you have
 the necessary redistribution rights. The companion app source is licensed
 separately under the [MIT License](LICENSE).
-

@@ -6,7 +6,7 @@
 2. In Daijishō, open **Settings → Library → Import Platform**.
 3. Select `JoiPlay.json`.
 4. Open the new JoiPlay platform, add the folder containing generated
-   `.joiplay` or `.dpt` files, and synchronize.
+   `.joiplay` or `.jp` files, and synchronize.
 5. Select **joiplay - JoiPlay** as the player if it is not selected already.
 
 ## Manual player
@@ -14,7 +14,7 @@
 Create a Daijishō player with:
 
 - Name: `joiplay - JoiPlay`
-- Accepted filename regex: `^(.*)\.(?:joiplay|dpt)$`
+- Accepted filename regex: `^(.*)\.(?:joiplay|jp)$`
 - Kill package processes: disabled
 - AM start arguments:
 
@@ -26,4 +26,3 @@ Create a Daijishō player with:
 
 The modified JoiPlay build is required because the original `ShortcutActivity`
 is not externally launchable and the library IDs are private.
-

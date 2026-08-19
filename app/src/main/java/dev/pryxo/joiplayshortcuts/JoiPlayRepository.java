@@ -59,6 +59,7 @@ public final class JoiPlayRepository {
             }
             while (cursor.moveToNext()) {
                 Game game = readGame(cursor);
+                android.util.Log.d("JoiPlayArtProbe", game.title + " | folder=" + game.folder + " | icon=" + game.icon);
                 if (!includeFolders && game.folderEntry) continue;
                 games.add(game);
             }

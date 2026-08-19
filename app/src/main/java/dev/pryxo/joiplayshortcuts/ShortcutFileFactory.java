@@ -6,7 +6,7 @@ public final class ShortcutFileFactory {
     private ShortcutFileFactory() {}
 
     public static String extension(AppPreferences.ShortcutFormat format) {
-        return format == AppPreferences.ShortcutFormat.JOIPLAY ? "joiplay" : "dpt";
+        return format == AppPreferences.ShortcutFormat.JOIPLAY ? "joiplay" : "jp";
     }
 
     public static String mimeType() {
@@ -32,4 +32,3 @@ public final class ShortcutFileFactory {
         return cleaned.length() > 120 ? cleaned.substring(0, 120).trim() : cleaned;
     }
 }
-

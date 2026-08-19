@@ -2,6 +2,7 @@ package dev.pryxo.joiplayshortcuts;
 
 import android.app.Activity;
 import android.app.Dialog;
+import android.animation.ObjectAnimator;
 import android.content.ActivityNotFoundException;
 import android.content.ClipData;
 import android.content.ClipboardManager;
@@ -13,6 +14,7 @@ import android.content.pm.ShortcutManager;
 import android.content.res.Configuration;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
+import android.graphics.Color;
 import android.graphics.Paint;
 import android.graphics.RectF;
 import android.graphics.Typeface;
@@ -20,6 +22,8 @@ import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.Icon;
 import android.net.Uri;
 import android.os.Bundle;
+import android.provider.DocumentsContract;
+import android.text.TextUtils;
 import android.view.Gravity;
 import android.view.HapticFeedbackConstants;
 import android.view.View;
@@ -28,6 +32,8 @@ import android.view.Window;
 import android.view.WindowInsetsController;
 import android.view.WindowManager;
 import android.widget.FrameLayout;
+import android.widget.GridLayout;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ProgressBar;
 import android.widget.ScrollView;
@@ -41,12 +47,14 @@ import java.util.Arrays;
 import java.util.Date;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 public final class MainActivity extends Activity {
     private static final int REQUEST_CREATE_DOCUMENT = 40;
     private static final int REQUEST_OUTPUT_TREE = 41;
+    private static final int REQUEST_CUSTOM_ICON = 42;
     private static final String PROJECT_URL = "https://github.com/Pryxo/JoiPlay-Shortcut-Generator";
 
     private enum Screen { LIBRARY, SETTINGS }
@@ -55,7 +63,9 @@ public final class MainActivity extends Activity {
     private Palette palette;
     private JoiPlayRepository repository;
     private ShortcutExporter exporter;
+    private GameArtLoader artLoader;
     private ExecutorService executor;
+    private ExecutorService artExecutor;
     private FrameLayout content;
     private TextView libraryNav;
     private TextView settingsNav;
@@ -63,16 +73,22 @@ public final class MainActivity extends Activity {
     private JoiPlayRepository.Result libraryResult;
     private boolean loading;
     private Game pendingDocumentGame;
+    private Game pendingCustomIconGame;
     private boolean exportAllAfterFolderSelection;
+    private boolean rememberOutputFolderSelection;
+    private TextView refreshButton;
+    private int nextTransitionDirection;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         preferences = new AppPreferences(this);
-        palette = Palette.from(this, preferences.theme());
+        palette = Palette.from(this, preferences.theme(), preferences.accentColor());
         repository = new JoiPlayRepository(this);
         exporter = new ShortcutExporter(this);
+        artLoader = new GameArtLoader(this, preferences);
         executor = Executors.newSingleThreadExecutor();
+        artExecutor = Executors.newFixedThreadPool(2);
         setContentView(buildShell());
         configureSystemBars();
         showLibrary();
@@ -93,6 +109,7 @@ public final class MainActivity extends Activity {
     @Override
     protected void onDestroy() {
         if (executor != null) executor.shutdownNow();
+        if (artExecutor != null) artExecutor.shutdownNow();
         super.onDestroy();
     }
 
@@ -149,6 +166,7 @@ public final class MainActivity extends Activity {
     }
 
     private void selectScreen(Screen screen) {
+        if (currentScreen != screen) nextTransitionDirection = screen == Screen.SETTINGS ? 1 : -1;
         currentScreen = screen;
         applyNavState(libraryNav, screen == Screen.LIBRARY);
         applyNavState(settingsNav, screen == Screen.SETTINGS);
@@ -163,11 +181,17 @@ public final class MainActivity extends Activity {
     private void refreshLibrary() {
         if (loading) return;
         loading = true;
-        if (currentScreen == Screen.LIBRARY) renderLibrary();
+        animateRefresh();
+        if (currentScreen == Screen.LIBRARY && libraryResult == null) renderLibrary();
         boolean includeFolders = preferences.showFolderEntries();
         AppPreferences.SortOrder sort = preferences.sortOrder();
         executor.execute(() -> {
             JoiPlayRepository.Result result = repository.load(includeFolders, sort);
+            if (result.isReady() && preferences.outputTree() != null) {
+                Set<String> existing = exporter.findExisting(
+                        preferences.outputTree(), result.games, preferences.shortcutFormat());
+                preferences.markShortcutsGenerated(existing);
+            }
             runOnUiThread(() -> {
                 loading = false;
                 libraryResult = result;
@@ -177,7 +201,6 @@ public final class MainActivity extends Activity {
     }
 
     private void renderLibrary() {
-        content.removeAllViews();
         ScrollView scroll = new ScrollView(this);
         scroll.setFillViewport(true);
         scroll.setClipToPadding(false);
@@ -199,13 +222,17 @@ public final class MainActivity extends Activity {
         } else {
             page.addView(librarySummary(libraryResult.games));
             page.addView(Ui.spacer(this, 1, 14));
-            for (Game game : libraryResult.games) {
-                page.addView(gameCard(game));
-                page.addView(Ui.spacer(this, 1, 10));
+            if (preferences.viewMode() == AppPreferences.ViewMode.GRID) {
+                page.addView(gameGrid(libraryResult.games));
+            } else {
+                for (Game game : libraryResult.games) {
+                    page.addView(gameCard(game));
+                    page.addView(Ui.spacer(this, 1, 10));
+                }
             }
         }
 
-        content.addView(scroll, new FrameLayout.LayoutParams(
+        installContent(scroll, new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.MATCH_PARENT
         ));
@@ -213,47 +240,73 @@ public final class MainActivity extends Activity {
 
     private View libraryHeader() {
         LinearLayout row = Ui.horizontal(this);
-        TextView mark = Ui.text(this, "J", 20, palette.onPrimary, true);
-        mark.setGravity(Gravity.CENTER);
-        mark.setBackground(Ui.rounded(this, palette.primary, 15));
+        ImageView mark = new ImageView(this);
+        mark.setImageDrawable(artLoader.joiPlayDrawable());
+        mark.setScaleType(ImageView.ScaleType.CENTER_CROP);
+        mark.setBackground(Ui.rounded(this, palette.surfaceRaised, 15));
+        mark.setClipToOutline(true);
+        mark.setContentDescription("JoiPlay icon");
         row.addView(mark, new LinearLayout.LayoutParams(Ui.dp(this, 48), Ui.dp(this, 48)));
         row.addView(Ui.spacer(this, 12, 1));
 
         LinearLayout labels = Ui.vertical(this);
-        labels.addView(Ui.text(this, "JoiPlay Shortcuts", 22, palette.text, true));
+        labels.addView(Ui.text(this, "JoiPlay Shortcut Generator", 20, palette.text, true));
         labels.addView(Ui.text(this, "Your library, ready for every frontend", 12, palette.textMuted, false));
         row.addView(labels, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
 
-        TextView refresh = Ui.pillButton(this, palette, "↻", false);
-        refresh.setTextSize(23);
-        refresh.setContentDescription("Refresh library");
-        refresh.setPadding(0, 0, 0, 0);
-        refresh.setOnClickListener(view -> refreshLibrary());
-        row.addView(refresh, new LinearLayout.LayoutParams(Ui.dp(this, 48), Ui.dp(this, 48)));
+        TextView viewMode = Ui.pillButton(this, palette,
+                preferences.viewMode() == AppPreferences.ViewMode.LIST ? "▦" : "☷", false);
+        viewMode.setTextSize(19);
+        viewMode.setContentDescription(preferences.viewMode() == AppPreferences.ViewMode.LIST
+                ? "Switch to grid view" : "Switch to list view");
+        viewMode.setPadding(0, 0, 0, 0);
+        viewMode.setOnClickListener(view -> {
+            AppPreferences.ViewMode mode = preferences.viewMode() == AppPreferences.ViewMode.LIST
+                    ? AppPreferences.ViewMode.GRID : AppPreferences.ViewMode.LIST;
+            preferences.setViewMode(mode);
+            renderLibrary();
+        });
+        row.addView(viewMode, new LinearLayout.LayoutParams(Ui.dp(this, 44), Ui.dp(this, 44)));
+        row.addView(Ui.spacer(this, 7, 1));
+
+        refreshButton = Ui.pillButton(this, palette, "↻", false);
+        refreshButton.setTextSize(23);
+        refreshButton.setContentDescription("Refresh library");
+        refreshButton.setPadding(0, 0, 0, 0);
+        refreshButton.setEnabled(!loading);
+        refreshButton.setOnClickListener(view -> refreshLibrary());
+        row.addView(refreshButton, new LinearLayout.LayoutParams(Ui.dp(this, 44), Ui.dp(this, 44)));
         return row;
     }
 
     private View librarySummary(List<Game> games) {
         int playable = 0;
         int launches = 0;
+        int generated = 0;
         for (Game game : games) {
-            if (!game.folderEntry) playable++;
+            if (!game.folderEntry) {
+                playable++;
+                if (preferences.isShortcutGenerated(game.id)) generated++;
+            }
             launches += Math.max(0, game.playCount);
         }
 
         LinearLayout card = Ui.vertical(this);
         card.setPadding(Ui.dp(this, 20), Ui.dp(this, 18), Ui.dp(this, 20), Ui.dp(this, 18));
-        card.setBackground(Ui.rounded(this, palette.dark ? 0xFF173B39 : 0xFFD9F3EE, 22));
+        card.setBackground(Ui.rounded(this, blend(palette.surface, palette.primary, palette.dark ? 0.22f : 0.13f), 22));
         card.addView(Ui.text(this, "LIBRARY CONNECTED", 11, palette.primary, true));
         card.addView(Ui.spacer(this, 1, 6));
-        card.addView(Ui.text(this,
-                playable + (playable == 1 ? " game" : " games") + "  ·  " + launches + " launches",
-                19,
-                palette.text,
-                true
-        ));
+        card.addView(Ui.text(this, "Total Games: " + playable, 19, palette.text, true));
+        card.addView(Ui.spacer(this, 1, 3));
+        card.addView(Ui.text(this, "Total Launches: " + launches, 15, palette.text, true));
         card.addView(Ui.spacer(this, 1, 6));
-        card.addView(Ui.text(this, "Tap to launch. Hold any game for details and shortcut tools.", 13, palette.textMuted, false));
+        String shortcutStatus = generated == 0
+                ? "No shortcut files generated yet"
+                : "✓ Shortcuts generated: " + generated + " of " + playable;
+        card.addView(Ui.text(this, shortcutStatus, 13,
+                generated > 0 ? palette.primary : palette.textMuted, generated > 0));
+        card.addView(Ui.spacer(this, 1, 5));
+        card.addView(Ui.text(this, "Tap to launch. Hold any game for details and shortcut tools.", 12, palette.textMuted, false));
         card.addView(Ui.spacer(this, 1, 16));
         TextView exportAll = Ui.pillButton(this, palette, "Generate all shortcut files", true);
         exportAll.setOnClickListener(view -> exportAll(games));
@@ -337,11 +390,7 @@ public final class MainActivity extends Activity {
         card.setFocusable(true);
         card.setContentDescription(game.title + ", " + game.runtimeLabel() + ". Tap to launch; hold for details.");
 
-        TextView art = Ui.text(this, initial(game.title), 22, palette.onPrimary, true);
-        art.setGravity(Gravity.CENTER);
-        int artColor = game.folderEntry ? palette.secondary : palette.primary;
-        art.setBackground(Ui.rounded(this, artColor, 16));
-        card.addView(art, new LinearLayout.LayoutParams(Ui.dp(this, 58), Ui.dp(this, 58)));
+        card.addView(gameArt(game, 58, false), new LinearLayout.LayoutParams(Ui.dp(this, 58), Ui.dp(this, 58)));
         card.addView(Ui.spacer(this, 13, 1));
 
         LinearLayout details = Ui.vertical(this);
@@ -356,6 +405,10 @@ public final class MainActivity extends Activity {
         path.setMaxLines(1);
         path.setEllipsize(android.text.TextUtils.TruncateAt.MIDDLE);
         details.addView(path);
+        if (!game.folderEntry && preferences.isShortcutGenerated(game.id)) {
+            details.addView(Ui.spacer(this, 1, 5));
+            details.addView(Ui.text(this, "✓ Shortcut generated", 11, palette.primary, true));
+        }
         card.addView(details, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
 
         if (!game.folderEntry) {
@@ -383,9 +436,113 @@ public final class MainActivity extends Activity {
         return card;
     }
 
+    private View gameGrid(List<Game> games) {
+        int screenWidth = getResources().getDisplayMetrics().widthPixels;
+        int laneWidth = Math.min(screenWidth - Ui.dp(this, 36), Ui.dp(this, 780));
+        int columns = laneWidth >= Ui.dp(this, 620) ? 3 : 2;
+        int gap = Ui.dp(this, 10);
+        int cardWidth = (laneWidth - gap * (columns - 1)) / columns;
+
+        GridLayout grid = new GridLayout(this);
+        grid.setColumnCount(columns);
+        grid.setAlignmentMode(GridLayout.ALIGN_BOUNDS);
+        for (int index = 0; index < games.size(); index++) {
+            Game game = games.get(index);
+            int row = index / columns;
+            int column = index % columns;
+            GridLayout.LayoutParams params = new GridLayout.LayoutParams(
+                    GridLayout.spec(row), GridLayout.spec(column));
+            params.width = cardWidth;
+            params.height = ViewGroup.LayoutParams.WRAP_CONTENT;
+            if (column > 0) params.leftMargin = gap;
+            params.bottomMargin = gap;
+            grid.addView(gridGameCard(game, cardWidth), params);
+        }
+        return grid;
+    }
+
+    private View gridGameCard(Game game, int cardWidth) {
+        LinearLayout card = Ui.vertical(this);
+        card.setPadding(Ui.dp(this, 9), Ui.dp(this, 9), Ui.dp(this, 9), Ui.dp(this, 13));
+        card.setBackground(Ui.ripple(this, palette.surface, Ui.withAlpha(palette.primary, 32), 20));
+        card.setClickable(true);
+        card.setFocusable(true);
+        card.setContentDescription(game.title + ", " + game.runtimeLabel() + ". Tap to launch; hold for details.");
+
+        int artHeight = Math.min(Ui.dp(this, 186), Math.round(cardWidth * 0.76f));
+        card.addView(gameArt(game, Math.max(cardWidth, artHeight), true),
+                new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, artHeight));
+        card.addView(Ui.spacer(this, 1, 12));
+        TextView title = Ui.text(this, game.title, 15, palette.text, true);
+        title.setMaxLines(2);
+        title.setEllipsize(TextUtils.TruncateAt.END);
+        card.addView(title, Ui.matchWrap());
+        card.addView(Ui.spacer(this, 1, 7));
+        String plays = game.playCount == 1 ? "1 launch" : game.playCount + " launches";
+        TextView metadata = Ui.text(this, game.runtimeLabel() + "  ·  " + plays, 11, palette.textMuted, false);
+        metadata.setMaxLines(1);
+        metadata.setEllipsize(TextUtils.TruncateAt.END);
+        card.addView(metadata, Ui.matchWrap());
+        if (!game.folderEntry && preferences.isShortcutGenerated(game.id)) {
+            card.addView(Ui.spacer(this, 1, 8));
+            card.addView(Ui.text(this, "✓ Shortcut generated", 11, palette.primary, true));
+        }
+
+        card.setOnClickListener(view -> {
+            if (preferences.tapAction() == AppPreferences.TapAction.DETAILS || game.folderEntry) {
+                showGameDetails(game);
+            } else {
+                launchGame(game);
+            }
+        });
+        card.setOnLongClickListener(view -> {
+            view.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);
+            showGameDetails(game);
+            return true;
+        });
+        return card;
+    }
+
+    private View gameArt(Game game, int targetPixels, boolean wide) {
+        FrameLayout frame = new FrameLayout(this);
+        frame.setBackground(Ui.rounded(this, game.folderEntry ? palette.secondary : palette.surfaceRaised, wide ? 15 : 16));
+        frame.setClipToOutline(true);
+
+        ImageView image = new ImageView(this);
+        image.setScaleType(wide ? ImageView.ScaleType.CENTER_CROP : ImageView.ScaleType.CENTER_CROP);
+        image.setImageDrawable(artLoader.joiPlayDrawable());
+        image.setContentDescription(game.title + " artwork");
+        String requestKey = game.id + ":" + String.valueOf(preferences.customIcon(game.id));
+        image.setTag(requestKey);
+        frame.addView(image, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+
+        if (!game.folderEntry) {
+            boolean generated = preferences.isShortcutGenerated(game.id);
+            if (generated) {
+                TextView badge = Ui.text(this, "✓", 12, Color.WHITE, true);
+                badge.setGravity(Gravity.CENTER);
+                badge.setBackground(Ui.rounded(this, palette.primary, 12));
+                badge.setContentDescription("Shortcut generated");
+                FrameLayout.LayoutParams badgeParams = new FrameLayout.LayoutParams(
+                        Ui.dp(this, 26), Ui.dp(this, 26), Gravity.TOP | Gravity.END);
+                badgeParams.setMargins(0, Ui.dp(this, 6), Ui.dp(this, 6), 0);
+                frame.addView(badge, badgeParams);
+            }
+        }
+
+        artExecutor.execute(() -> {
+            Bitmap bitmap = artLoader.load(game, Math.max(Ui.dp(this, 96), targetPixels));
+            if (bitmap == null) return;
+            runOnUiThread(() -> {
+                if (requestKey.equals(image.getTag())) image.setImageBitmap(bitmap);
+            });
+        });
+        return frame;
+    }
+
     private void showSettings() {
         selectScreen(Screen.SETTINGS);
-        content.removeAllViews();
         ScrollView scroll = new ScrollView(this);
         scroll.setFillViewport(true);
         scroll.setClipToPadding(false);
@@ -400,21 +557,31 @@ public final class MainActivity extends Activity {
 
         page.addView(sectionLabel("APPEARANCE"));
         page.addView(settingsGroup(Arrays.asList(
-                settingRow("App theme", "Follow the device or choose a look", themeLabel(), () -> chooseTheme())
+                settingRow("App theme", "Follow the device or choose a look", themeLabel(), () -> chooseTheme()),
+                settingRow("Color", "Accent color used throughout the app", accentLabel(), () -> chooseAccentColor())
         )));
         page.addView(Ui.spacer(this, 1, 20));
 
         page.addView(sectionLabel("SHORTCUTS"));
         ArrayList<View> shortcutRows = new ArrayList<>();
         shortcutRows.add(settingRow("File type", "Daijishō player-template output", formatLabel(), () -> chooseFormat()));
-        shortcutRows.add(settingRow("Output folder", "Used for one-tap and bulk generation", outputLabel(), () -> chooseOutputFolder(false)));
+        shortcutRows.add(settingRow("Output folder", outputPathLabel(), outputLabel(), () -> chooseOutputFolder(false, true)));
+        if (preferences.outputTree() != null) {
+            shortcutRows.add(settingRow("Forget output folder", "Return to choosing a destination when generating", "Clear", () -> {
+                preferences.setOutputTree(null);
+                Toast.makeText(this, "Default output folder cleared", Toast.LENGTH_SHORT).show();
+                showSettings();
+            }));
+        }
         shortcutRows.add(settingRow("Tap behavior", "What happens when you tap a library game", tapLabel(), () -> chooseTapAction()));
         page.addView(settingsGroup(shortcutRows));
         page.addView(Ui.spacer(this, 1, 20));
 
         page.addView(sectionLabel("LIBRARY"));
         ArrayList<View> libraryRows = new ArrayList<>();
+        libraryRows.add(settingRow("Library layout", "Switch between compact rows and box art", viewModeLabel(), () -> chooseViewMode()));
         libraryRows.add(settingRow("Sort games", "Choose the order used in Library", sortLabel(), () -> chooseSortOrder()));
+        libraryRows.add(settingRow("Custom game icons", "Upload or reset artwork for any game", "Manage  ›", this::showIconManager));
         libraryRows.add(folderEntriesSwitch());
         page.addView(settingsGroup(libraryRows));
         page.addView(Ui.spacer(this, 1, 20));
@@ -423,10 +590,10 @@ public final class MainActivity extends Activity {
         page.addView(settingsGroup(Arrays.asList(
                 settingRow("Project page", "Source, releases, setup, and issues", "GitHub  ↗", this::openProject),
                 settingRow("Privacy", "No network access, ads, or analytics", "Read", this::showPrivacy),
-                settingRow("Version", "JoiPlay Shortcuts", getVersionName(), null)
+                settingRow("Version", "JoiPlay Shortcut Generator", getVersionName(), null)
         )));
 
-        content.addView(scroll, new FrameLayout.LayoutParams(
+        installContent(scroll, new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.MATCH_PARENT
         ));
@@ -515,10 +682,7 @@ public final class MainActivity extends Activity {
         sheet.addView(Ui.spacer(this, 1, 18));
 
         LinearLayout heading = Ui.horizontal(this);
-        TextView art = Ui.text(this, initial(game.title), 24, palette.onPrimary, true);
-        art.setGravity(Gravity.CENTER);
-        art.setBackground(Ui.rounded(this, game.folderEntry ? palette.secondary : palette.primary, 18));
-        heading.addView(art, new LinearLayout.LayoutParams(Ui.dp(this, 64), Ui.dp(this, 64)));
+        heading.addView(gameArt(game, 64, false), new LinearLayout.LayoutParams(Ui.dp(this, 64), Ui.dp(this, 64)));
         heading.addView(Ui.spacer(this, 14, 1));
         LinearLayout text = Ui.vertical(this);
         TextView title = Ui.text(this, game.title, 21, palette.text, true);
@@ -534,6 +698,8 @@ public final class MainActivity extends Activity {
         sheet.addView(metadataLine("Location", game.locationLabel()));
         if (!game.version.isEmpty()) sheet.addView(metadataLine("Version", game.version));
         if (game.date > 0) sheet.addView(metadataLine("Added", formatDate(game.date)));
+        if (!game.folderEntry) sheet.addView(metadataLine("Shortcut",
+                preferences.isShortcutGenerated(game.id) ? "Generated ✓" : "Not generated"));
         sheet.addView(Ui.spacer(this, 1, 18));
 
         Dialog dialog = bottomDialog(sheet);
@@ -561,6 +727,26 @@ public final class MainActivity extends Activity {
             actions.addView(Ui.spacer(this, 8, 1));
             actions.addView(pin, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
             sheet.addView(actions);
+            sheet.addView(Ui.spacer(this, 1, 10));
+
+            TextView customIcon = Ui.pillButton(this, palette,
+                    preferences.customIcon(game.id) == null ? "Choose custom icon" : "Change custom icon", false);
+            customIcon.setOnClickListener(view -> {
+                dialog.dismiss();
+                chooseCustomIcon(game);
+            });
+            sheet.addView(customIcon, Ui.matchWrap());
+            if (preferences.customIcon(game.id) != null) {
+                sheet.addView(Ui.spacer(this, 1, 8));
+                TextView resetIcon = Ui.pillButton(this, palette, "Use JoiPlay icon again", false);
+                resetIcon.setOnClickListener(view -> {
+                    preferences.setCustomIcon(game.id, null);
+                    dialog.dismiss();
+                    if (currentScreen == Screen.LIBRARY) renderLibrary();
+                    Toast.makeText(this, "Custom icon removed", Toast.LENGTH_SHORT).show();
+                });
+                sheet.addView(resetIcon, Ui.matchWrap());
+            }
             sheet.addView(Ui.spacer(this, 1, 10));
         }
         TextView copy = Ui.pillButton(this, palette, "Copy JoiPlay ID", false);
@@ -661,10 +847,27 @@ public final class MainActivity extends Activity {
         });
     }
 
+    private void chooseAccentColor() {
+        AppPreferences.AccentColor[] values = AppPreferences.AccentColor.values();
+        showChoice("App color", new String[]{"Purple", "Blue", "Pink", "Orange", "Teal"},
+                preferences.accentColor().ordinal(), index -> {
+                    preferences.setAccentColor(values[index]);
+                    recreate();
+                });
+    }
+
     private void chooseFormat() {
         AppPreferences.ShortcutFormat[] values = AppPreferences.ShortcutFormat.values();
-        showChoice("Shortcut file type", new String[]{".dpt · Generic template", ".joiplay · Dedicated platform"}, preferences.shortcutFormat().ordinal(), index -> {
+        showChoice("Shortcut file type", new String[]{".jp · Compact JoiPlay shortcut", ".joiplay · Dedicated platform"}, preferences.shortcutFormat().ordinal(), index -> {
             preferences.setShortcutFormat(values[index]);
+            showSettings();
+        });
+    }
+
+    private void chooseViewMode() {
+        AppPreferences.ViewMode[] values = AppPreferences.ViewMode.values();
+        showChoice("Library layout", new String[]{"List view", "Box view"}, preferences.viewMode().ordinal(), index -> {
+            preferences.setViewMode(values[index]);
             showSettings();
         });
     }
@@ -686,8 +889,9 @@ public final class MainActivity extends Activity {
         });
     }
 
-    private void chooseOutputFolder(boolean exportAfterSelection) {
+    private void chooseOutputFolder(boolean exportAfterSelection, boolean rememberSelection) {
         exportAllAfterFolderSelection = exportAfterSelection;
+        rememberOutputFolderSelection = rememberSelection;
         Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
         intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION
                 | Intent.FLAG_GRANT_WRITE_URI_PERMISSION
@@ -713,7 +917,11 @@ public final class MainActivity extends Activity {
         executor.execute(() -> {
             try {
                 exporter.writeToTree(outputTree, game, preferences.shortcutFormat());
-                runOnUiThread(() -> Toast.makeText(this, "Shortcut generated", Toast.LENGTH_SHORT).show());
+                runOnUiThread(() -> {
+                    preferences.markShortcutGenerated(game.id);
+                    Toast.makeText(this, "Shortcut generated", Toast.LENGTH_SHORT).show();
+                    if (currentScreen == Screen.LIBRARY) renderLibrary();
+                });
             } catch (Exception error) {
                 runOnUiThread(() -> {
                     preferences.setOutputTree(null);
@@ -725,7 +933,7 @@ public final class MainActivity extends Activity {
 
     private void exportAll(List<Game> games) {
         if (preferences.outputTree() == null) {
-            chooseOutputFolder(true);
+            chooseOutputFolder(true, false);
             return;
         }
         exportAllToConfiguredFolder(games);
@@ -734,15 +942,75 @@ public final class MainActivity extends Activity {
     private void exportAllToConfiguredFolder(List<Game> games) {
         Uri tree = preferences.outputTree();
         if (tree == null) return;
+        exportAllToFolder(tree, games);
+    }
+
+    private void exportAllToFolder(Uri tree, List<Game> games) {
         Toast.makeText(this, "Generating " + games.size() + " shortcuts…", Toast.LENGTH_SHORT).show();
         executor.execute(() -> {
             ShortcutExporter.ExportSummary summary = exporter.writeAll(tree, games, preferences.shortcutFormat());
             runOnUiThread(() -> {
+                preferences.markShortcutsGenerated(summary.writtenGameIds);
                 String message = summary.written + " shortcuts generated";
                 if (summary.failed > 0) message += " · " + summary.failed + " failed";
                 Toast.makeText(this, message, summary.failed > 0 ? Toast.LENGTH_LONG : Toast.LENGTH_SHORT).show();
+                if (currentScreen == Screen.LIBRARY) renderLibrary();
             });
         });
+    }
+
+    private void chooseCustomIcon(Game game) {
+        pendingCustomIconGame = game;
+        Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+        intent.addCategory(Intent.CATEGORY_OPENABLE);
+        intent.setType("image/*");
+        intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
+        startActivityForResult(intent, REQUEST_CUSTOM_ICON);
+    }
+
+    private void showIconManager() {
+        if (libraryResult == null || !libraryResult.isReady() || libraryResult.games.isEmpty()) {
+            Toast.makeText(this, "Open Library and refresh your games first", Toast.LENGTH_LONG).show();
+            showLibrary();
+            return;
+        }
+
+        LinearLayout sheet = Ui.vertical(this);
+        sheet.setPadding(Ui.dp(this, 20), Ui.dp(this, 18), Ui.dp(this, 20), Ui.dp(this, 26));
+        sheet.setBackground(Ui.rounded(this, palette.surface, 26));
+        sheet.addView(Ui.text(this, "Custom game icons", 20, palette.text, true));
+        sheet.addView(Ui.spacer(this, 1, 5));
+        sheet.addView(Ui.text(this, "Choose a game, then select an image from your device.", 12, palette.textMuted, false));
+        sheet.addView(Ui.spacer(this, 1, 14));
+
+        ScrollView scroll = new ScrollView(this);
+        LinearLayout choices = Ui.vertical(this);
+        scroll.addView(choices, new ScrollView.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        int maxHeight = Math.min(getResources().getDisplayMetrics().heightPixels / 2, Ui.dp(this, 420));
+        sheet.addView(scroll, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, maxHeight));
+        Dialog dialog = bottomDialog(sheet);
+
+        for (Game game : libraryResult.games) {
+            if (game.folderEntry) continue;
+            String status = preferences.customIcon(game.id) == null ? "JoiPlay artwork" : "Custom artwork ✓";
+            LinearLayout row = Ui.vertical(this);
+            row.setPadding(Ui.dp(this, 13), Ui.dp(this, 12), Ui.dp(this, 13), Ui.dp(this, 12));
+            row.addView(Ui.text(this, game.title, 14, palette.text, true));
+            row.addView(Ui.spacer(this, 1, 3));
+            row.addView(Ui.text(this, status, 11,
+                    preferences.customIcon(game.id) == null ? palette.textMuted : palette.primary,
+                    preferences.customIcon(game.id) != null));
+            row.setBackground(Ui.ripple(this, palette.surface, Ui.withAlpha(palette.primary, 28), 14));
+            row.setClickable(true);
+            row.setOnClickListener(view -> {
+                dialog.dismiss();
+                chooseCustomIcon(game);
+            });
+            choices.addView(row, Ui.matchWrap());
+        }
+        dialog.show();
+        sizeBottomDialog(dialog);
     }
 
     @Override
@@ -750,7 +1018,9 @@ public final class MainActivity extends Activity {
         super.onActivityResult(requestCode, resultCode, data);
         if (resultCode != RESULT_OK || data == null || data.getData() == null) {
             pendingDocumentGame = null;
+            pendingCustomIconGame = null;
             exportAllAfterFolderSelection = false;
+            rememberOutputFolderSelection = false;
             return;
         }
         Uri uri = data.getData();
@@ -760,27 +1030,45 @@ public final class MainActivity extends Activity {
             executor.execute(() -> {
                 try {
                     exporter.writeDocument(uri, game);
-                    runOnUiThread(() -> Toast.makeText(this, "Shortcut generated", Toast.LENGTH_SHORT).show());
+                    runOnUiThread(() -> {
+                        preferences.markShortcutGenerated(game.id);
+                        Toast.makeText(this, "Shortcut generated", Toast.LENGTH_SHORT).show();
+                        if (currentScreen == Screen.LIBRARY) renderLibrary();
+                    });
                 } catch (Exception error) {
                     runOnUiThread(() -> Toast.makeText(this, "Could not write the shortcut", Toast.LENGTH_LONG).show());
                 }
             });
         } else if (requestCode == REQUEST_OUTPUT_TREE) {
-            try {
-                getContentResolver().takePersistableUriPermission(
-                        uri,
-                        Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION
-                );
-            } catch (SecurityException ignored) {
-                Toast.makeText(this, "This folder cannot be remembered", Toast.LENGTH_LONG).show();
+            if (rememberOutputFolderSelection) {
+                try {
+                    getContentResolver().takePersistableUriPermission(
+                            uri,
+                            Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                    );
+                    preferences.setOutputTree(uri);
+                } catch (SecurityException ignored) {
+                    Toast.makeText(this, "This folder cannot be remembered", Toast.LENGTH_LONG).show();
+                }
             }
-            preferences.setOutputTree(uri);
             boolean shouldExport = exportAllAfterFolderSelection;
             exportAllAfterFolderSelection = false;
+            rememberOutputFolderSelection = false;
             if (shouldExport && libraryResult != null && libraryResult.isReady()) {
-                exportAllToConfiguredFolder(libraryResult.games);
+                exportAllToFolder(uri, libraryResult.games);
             }
             if (currentScreen == Screen.SETTINGS) showSettings();
+        } else if (requestCode == REQUEST_CUSTOM_ICON && pendingCustomIconGame != null) {
+            Game game = pendingCustomIconGame;
+            pendingCustomIconGame = null;
+            try {
+                getContentResolver().takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            } catch (SecurityException ignored) {
+                // The current grant remains usable for this session even if it cannot be persisted.
+            }
+            preferences.setCustomIcon(game.id, uri);
+            Toast.makeText(this, "Custom icon saved for " + game.title, Toast.LENGTH_SHORT).show();
+            if (currentScreen == Screen.LIBRARY) renderLibrary(); else showSettings();
         }
     }
 
@@ -802,17 +1090,25 @@ public final class MainActivity extends Activity {
             Toast.makeText(this, "Your launcher does not support pinned shortcuts", Toast.LENGTH_LONG).show();
             return;
         }
-        Intent launch = new Intent(Intent.ACTION_VIEW);
-        launch.setComponent(new ComponentName(JoiPlayRepository.JOIPLAY_PACKAGE, JoiPlayRepository.SHORTCUT_ACTIVITY));
-        launch.putExtra("id", game.id);
-        ShortcutInfo shortcut = new ShortcutInfo.Builder(this, "joiplay-" + game.id)
-                .setShortLabel(game.title)
-                .setLongLabel("Launch " + game.title + " in JoiPlay")
-                .setIcon(Icon.createWithBitmap(shortcutIcon(game)))
-                .setIntent(launch)
-                .build();
-        boolean requested = manager.requestPinShortcut(shortcut, null);
-        Toast.makeText(this, requested ? "Pin request sent" : "Could not request the shortcut", Toast.LENGTH_SHORT).show();
+        Toast.makeText(this, "Preparing home shortcut…", Toast.LENGTH_SHORT).show();
+        artExecutor.execute(() -> {
+            Bitmap bitmap = artLoader.load(game, 192);
+            if (bitmap == null) bitmap = shortcutIcon(game);
+            Bitmap finalBitmap = bitmap;
+            runOnUiThread(() -> {
+                Intent launch = new Intent(Intent.ACTION_VIEW);
+                launch.setComponent(new ComponentName(JoiPlayRepository.JOIPLAY_PACKAGE, JoiPlayRepository.SHORTCUT_ACTIVITY));
+                launch.putExtra("id", game.id);
+                ShortcutInfo shortcut = new ShortcutInfo.Builder(this, "joiplay-" + game.id)
+                        .setShortLabel(game.title)
+                        .setLongLabel("Launch " + game.title + " in JoiPlay")
+                        .setIcon(Icon.createWithBitmap(finalBitmap))
+                        .setIntent(launch)
+                        .build();
+                boolean requested = manager.requestPinShortcut(shortcut, null);
+                Toast.makeText(this, requested ? "Pin request sent" : "Could not request the shortcut", Toast.LENGTH_SHORT).show();
+            });
+        });
     }
 
     private Bitmap shortcutIcon(Game game) {
@@ -845,7 +1141,7 @@ public final class MainActivity extends Activity {
         sheet.addView(Ui.text(this, "Privacy by design", 21, palette.text, true));
         sheet.addView(Ui.spacer(this, 1, 12));
         TextView text = Ui.text(this,
-                "JoiPlay Shortcuts has no Internet permission, analytics, ads, or accounts. It reads the sanitized game list exposed by the modified JoiPlay provider and writes shortcut files only to a folder or document you choose. Settings remain on this device.",
+                "JoiPlay Shortcut Generator has no Internet permission, analytics, ads, or accounts. It reads the sanitized game list exposed by the modified JoiPlay provider and writes shortcut files only to a folder or document you choose. Settings remain on this device.",
                 14,
                 palette.textMuted,
                 false
@@ -875,6 +1171,11 @@ public final class MainActivity extends Activity {
         return "System  ›";
     }
 
+    private String accentLabel() {
+        String name = preferences.accentColor().name().toLowerCase(Locale.ROOT);
+        return name.substring(0, 1).toUpperCase(Locale.ROOT) + name.substring(1) + "  ›";
+    }
+
     private String formatLabel() {
         return "." + ShortcutFileFactory.extension(preferences.shortcutFormat()) + "  ›";
     }
@@ -885,12 +1186,66 @@ public final class MainActivity extends Activity {
         return "Title  ›";
     }
 
+    private String viewModeLabel() {
+        return preferences.viewMode() == AppPreferences.ViewMode.GRID ? "Box  ›" : "List  ›";
+    }
+
     private String tapLabel() {
         return preferences.tapAction() == AppPreferences.TapAction.LAUNCH ? "Launch  ›" : "Details  ›";
     }
 
     private String outputLabel() {
-        return preferences.outputTree() == null ? "Choose  ›" : "Selected  ›";
+        return preferences.outputTree() == null ? "Optional  ›" : "Change  ›";
+    }
+
+    private String outputPathLabel() {
+        Uri tree = preferences.outputTree();
+        if (tree == null) return "No default folder — you can still generate files";
+        try {
+            String documentId = DocumentsContract.getTreeDocumentId(tree);
+            int separator = documentId.indexOf(':');
+            if (separator >= 0) {
+                String volume = documentId.substring(0, separator);
+                String path = documentId.substring(separator + 1).replace(':', '/');
+                if ("primary".equalsIgnoreCase(volume)) return "/storage/emulated/0/" + path;
+                return "/storage/" + volume + "/" + path;
+            }
+            return Uri.decode(documentId);
+        } catch (RuntimeException ignored) {
+            return Uri.decode(tree.toString());
+        }
+    }
+
+    private void installContent(View view, FrameLayout.LayoutParams params) {
+        content.removeAllViews();
+        content.addView(view, params);
+        int direction = nextTransitionDirection;
+        nextTransitionDirection = 0;
+        view.setAlpha(0f);
+        if (direction == 0) {
+            view.setTranslationY(Ui.dp(this, 10));
+            view.animate().alpha(1f).translationY(0f).setDuration(230).start();
+        } else {
+            view.setTranslationX(Ui.dp(this, 30) * direction);
+            view.animate().alpha(1f).translationX(0f).setDuration(260).start();
+        }
+    }
+
+    private void animateRefresh() {
+        if (refreshButton == null) return;
+        refreshButton.setEnabled(false);
+        ObjectAnimator rotation = ObjectAnimator.ofFloat(
+                refreshButton, View.ROTATION, refreshButton.getRotation(), refreshButton.getRotation() + 360f);
+        rotation.setDuration(650);
+        rotation.start();
+    }
+
+    private static int blend(int base, int overlay, float amount) {
+        float inverse = 1f - amount;
+        return Color.rgb(
+                Math.round(Color.red(base) * inverse + Color.red(overlay) * amount),
+                Math.round(Color.green(base) * inverse + Color.green(overlay) * amount),
+                Math.round(Color.blue(base) * inverse + Color.blue(overlay) * amount));
     }
 
     private String getVersionName() {
