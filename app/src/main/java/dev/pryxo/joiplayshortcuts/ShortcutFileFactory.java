@@ -20,14 +20,9 @@ public final class ShortcutFileFactory {
     }
 
     public static String contents(Game game, AppPreferences.ShortcutFormat format) {
-        if (format == AppPreferences.ShortcutFormat.JOIPLAY) {
-            // iiSU's fileContent route substitutes the complete file into
-            // %ROM_CONTENT%, so this file must contain only the JoiPlay ID.
-            return game.id;
-        }
-        return "# Daijishou Player Template\n"
-                + "[joiplay_id] " + game.id + "\n"
-                + "...\n";
+        // fileContent routes substitute the complete file into %ROM_CONTENT%,
+        // so both supported extensions must contain only the JoiPlay ID.
+        return game.id;
     }
 
     public static String sanitizeFileName(String input) {

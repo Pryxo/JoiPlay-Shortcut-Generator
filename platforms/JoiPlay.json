@@ -1,33 +1,30 @@
 {
-  "databaseVersion": 14,
-  "revisionNumber": 1,
-  "platform": {
-    "name": "JoiPlay",
-    "uniqueId": "joiplay",
-    "shortname": "joiplay",
-    "description": "Games installed in JoiPlay",
-    "acceptedFilenameRegex": "^(?!(?:\\._|\\.).*).*$",
-    "scraperSourceList": [],
-    "boxArtAspectRatioId": 0,
-    "useCustomBoxArtAspectRatio": false,
-    "customBoxArtAspectRatio": null,
-    "screenAspectRatioId": 0,
-    "useCustomScreenAspectRatio": false,
-    "customScreenAspectRatio": null,
-    "retroAchievementsAlias": null,
-    "retroAchievementsSystemId": null,
-    "extra": ""
-  },
-  "playerList": [
+  "shortName": "joiplay",
+  "longName": "JoiPlay",
+  "releaseYear": "",
+  "releaseDate": "",
+  "manufacturer": "JoiPlay",
+  "retroAchievementsId": "NA",
+  "romExtensions": [
+    ".jp",
+    ".JP",
+    ".joiplay",
+    ".JOIPLAY"
+  ],
+  "emulators": [
     {
-      "name": "joiplay - JoiPlay",
-      "uniqueId": "joiplay.joiplay",
-      "description": "JoiPlay game ID player; supported extension: jp",
-      "acceptedFilenameRegex": "^(.*)\\.jp$",
-      "amStartArguments": "-n cyou.joiplay.joiplay/cyou.joiplay.joiplay.activities.ShortcutActivity\n --es id {tags.joiplay_id}\n --activity-clear-top",
-      "killPackageProcesses": false,
-      "killPackageProcessesWarning": false,
-      "extra": ""
+      "id": "JOIPLAY",
+      "name": "JoiPlay (Standalone)",
+      "routeType": "fileContent",
+      "commands": [
+        {
+          "description": "JoiPlay",
+          "command": "cyou.joiplay.joiplay/.activities.ShortcutActivity --es id \"%ROM_CONTENT%\""
+        }
+      ],
+      "packages": [
+        "cyou.joiplay.joiplay"
+      ]
     }
   ]
 }

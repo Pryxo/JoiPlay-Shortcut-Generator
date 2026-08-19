@@ -943,7 +943,7 @@ public final class MainActivity extends Activity {
 
     private void chooseFormat() {
         AppPreferences.ShortcutFormat[] values = AppPreferences.ShortcutFormat.values();
-        showChoice("Shortcut file type", new String[]{".jp · Daijishō player template", ".joiplay · iiSU file-content shortcut"}, preferences.shortcutFormat().ordinal(), index -> {
+        showChoice("Shortcut file type", new String[]{".jp · Raw JoiPlay ID", ".joiplay · Raw JoiPlay ID"}, preferences.shortcutFormat().ordinal(), index -> {
             preferences.setShortcutFormat(values[index]);
             showSettings();
         });

@@ -12,10 +12,10 @@ public final class ShortcutFileFactoryTest {
     }
 
     @Test
-    public void createsDocumentedDaijishouTemplate() {
+    public void createsRawIdForJpFileContentRoute() {
         String output = ShortcutFileFactory.contents(
                 game("3b6d-123", "A Game"), AppPreferences.ShortcutFormat.JP);
-        assertEquals("# Daijishou Player Template\n[joiplay_id] 3b6d-123\n...\n", output);
+        assertEquals("3b6d-123", output);
     }
 
     @Test
