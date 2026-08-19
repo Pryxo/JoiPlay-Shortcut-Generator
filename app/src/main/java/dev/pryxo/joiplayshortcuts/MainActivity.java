@@ -84,6 +84,7 @@ public final class MainActivity extends Activity {
     private boolean rememberOutputFolderSelection;
     private TextView refreshButton;
     private ObjectAnimator refreshAnimator;
+    private LinearLayout libraryContent;
     private int nextTransitionDirection;
 
     @Override
@@ -238,7 +239,6 @@ public final class MainActivity extends Activity {
         if (loading) return;
         loading = true;
         animateRefresh();
-        if (currentScreen == Screen.LIBRARY && libraryResult == null) renderLibrary();
         boolean includeFolders = preferences.showFolderEntries();
         AppPreferences.SortOrder sort = preferences.sortOrder();
         executor.execute(() -> {
@@ -252,7 +252,13 @@ public final class MainActivity extends Activity {
                 loading = false;
                 libraryResult = result;
                 stopRefreshAnimation();
-                if (currentScreen == Screen.LIBRARY) renderLibrary();
+                if (currentScreen == Screen.LIBRARY) {
+                    if (libraryContent != null && libraryContent.isAttachedToWindow()) {
+                        renderLibraryContent();
+                    } else {
+                        renderLibrary();
+                    }
+                }
             });
         });
     }
@@ -268,31 +274,38 @@ public final class MainActivity extends Activity {
         page.addView(libraryHeader());
         page.addView(Ui.spacer(this, 1, 18));
 
-        if (loading) {
-            page.addView(loadingCard());
-        } else if (libraryResult == null) {
-            page.addView(loadingCard());
-        } else if (!libraryResult.isReady()) {
-            page.addView(connectionErrorCard(libraryResult));
-        } else if (libraryResult.games.isEmpty()) {
-            page.addView(emptyLibraryCard());
-        } else {
-            page.addView(librarySummary(libraryResult.games));
-            page.addView(Ui.spacer(this, 1, 14));
-            if (preferences.viewMode() == AppPreferences.ViewMode.GRID) {
-                page.addView(gameGrid(libraryResult.games));
-            } else {
-                for (Game game : libraryResult.games) {
-                    page.addView(gameCard(game));
-                    page.addView(Ui.spacer(this, 1, 10));
-                }
-            }
-        }
+        libraryContent = Ui.vertical(this);
+        page.addView(libraryContent, Ui.matchWrap());
+        renderLibraryContent();
 
         installContent(scroll, new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.MATCH_PARENT
         ));
+    }
+
+    private void renderLibraryContent() {
+        if (libraryContent == null) return;
+        libraryContent.removeAllViews();
+
+        if (libraryResult == null) {
+            libraryContent.addView(loadingCard());
+        } else if (!libraryResult.isReady()) {
+            libraryContent.addView(connectionErrorCard(libraryResult));
+        } else if (libraryResult.games.isEmpty()) {
+            libraryContent.addView(emptyLibraryCard());
+        } else {
+            libraryContent.addView(librarySummary(libraryResult.games));
+            libraryContent.addView(Ui.spacer(this, 1, 14));
+            if (preferences.viewMode() == AppPreferences.ViewMode.GRID) {
+                libraryContent.addView(gameGrid(libraryResult.games));
+            } else {
+                for (Game game : libraryResult.games) {
+                    libraryContent.addView(gameCard(game));
+                    libraryContent.addView(Ui.spacer(this, 1, 10));
+                }
+            }
+        }
     }
 
     private View libraryHeader() {
@@ -354,9 +367,11 @@ public final class MainActivity extends Activity {
         card.setBackground(Ui.rounded(this, blend(palette.surface, palette.primary, palette.dark ? 0.22f : 0.13f), 22));
         card.addView(Ui.text(this, "LIBRARY CONNECTED", 11, palette.primary, true));
         card.addView(Ui.spacer(this, 1, 6));
-        String gameCount = playable == 1 ? "1 game" : playable + " games";
-        String launchCount = launches == 1 ? "1 launch" : launches + " launches";
-        TextView totals = Ui.text(this, gameCount + "  •  " + launchCount, 19, palette.text, true);
+        TextView totals = Ui.text(this,
+                "Total Games: " + playable + " • Total Launches: " + launches,
+                19,
+                palette.text,
+                true);
         totals.setMaxLines(1);
         totals.setEllipsize(TextUtils.TruncateAt.END);
         card.addView(totals);

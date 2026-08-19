@@ -1,103 +1,48 @@
 # JoiPlay Shortcut Generator
 
-An original Android companion for turning the games already installed in
-JoiPlay into launchable frontend files and Android home-screen shortcuts.
+## Install
 
-The app is deliberately focused: **Library** shows the live JoiPlay library,
-and **Settings** controls how shortcuts are created. There is no store search,
-account, ad, analytics SDK, or network permission.
+### Requirements
 
-## Highlights
+- Android 8.0 or newer
+- JoiPlay with at least one game added
 
-- Reads the live JoiPlay game list through the project's read-only provider.
-- Launches a selected game directly in JoiPlay.
-- Long-press details with game ID, runtime, path, date, and play count.
-- Generates one shortcut or the complete library in a single pass.
-- Supports compact `.jp` and dedicated `.joiplay` shortcut files.
-- Uses JoiPlay game artwork with per-game custom icon overrides.
-- Offers list and box-art library layouts with generated-shortcut indicators.
-- Includes purple-first accent colors and animated navigation/refresh states.
-- Pins individual games to the Android home screen.
-- Remembers an output folder through Android's Storage Access Framework.
-- System, light, and dark appearance modes.
-- Title, recently-added, and most-played sorting.
-- Responsive phone, tablet, portrait, and landscape layouts.
-- No broad storage permission and no root requirement.
+### Steps
 
-![Library screen](docs/images/library.png)
+1. Download the latest release package from this repository's **Releases** page.
+2. Back up your existing JoiPlay data before replacing an installed JoiPlay app.
+3. Install the JoiPlay APK included with the release package.
+4. Install the JoiPlay Shortcut Generator APK.
+5. Open JoiPlay Shortcut Generator and refresh the Library.
 
-## Requirements
+Android might ask you to allow APK installation from your browser or file
+manager. If Android reports a signature conflict, back up JoiPlay, uninstall
+the existing JoiPlay app, and then install the included APK.
 
-1. Android 8.0 (API 26) or newer.
-2. A compatible modified JoiPlay build that exposes:
-   `content://cyou.joiplay.joiplay.library/games`
-3. The consumer permission:
-   `cyou.joiplay.joiplay.permission.READ_LIBRARY`
+## Build from source
 
-An ordinary JoiPlay APK keeps its library in private app storage. Android does
-not let a separate companion app read that file, so the read-only provider is
-required. The app reports a clear connection error when the installed build
-does not provide it.
-
-## Use
-
-1. Install a compatible modified JoiPlay build and add games in JoiPlay.
-2. Install JoiPlay Shortcut Generator.
-3. Open **Library**. Tap a game to launch it, or hold it for details.
-4. Choose **Generate file**, or use **Generate all shortcut files**.
-5. Select an output folder in Settings for one-tap and bulk exports.
-
-Generated files contain:
-
-```text
-# Daijishou Player Template
-[joiplay_id] YOUR_GAME_ID
-...
-```
-
-See [Daijishō setup](docs/DAIJISHO_SETUP.md) for the included importable
-platform definition and manual player arguments.
-
-## Build
-
-Prerequisites:
+### Requirements
 
 - JDK 21
-- Android SDK Platform 36 and Build Tools 36
+- Android SDK Platform 36
+- Android SDK Build Tools 36.0.0
 
-On Windows:
+Clone the repository, open a terminal in its root directory, and run:
 
 ```powershell
-$env:JAVA_HOME = "C:\Program Files\Android\Android Studio\jbr"
-$env:ANDROID_HOME = "$env:LOCALAPPDATA\Android\Sdk"
-.\gradlew.bat testDebugUnitTest lintDebug assembleDebug
+./gradlew.bat testDebugUnitTest lintDebug assembleDebug
 ```
 
-The debug APK is written to
-`app/build/outputs/apk/debug/app-debug.apk`.
+On Linux or macOS, run:
 
-Release builds are unsigned unless you configure Android signing locally or in
-your release workflow. Never commit a keystore or its passwords.
+```sh
+./gradlew testDebugUnitTest lintDebug assembleDebug
+```
 
-## Project status
+The debug APK is created at:
 
-`0.1.0` is the first public-development build. The provider and direct-launch
-contract were runtime-tested with JoiPlay `1.22.000-patreon` on Android 15.
+```text
+app/build/outputs/apk/debug/app-debug.apk
+```
 
-## Privacy
-
-The app has no Internet permission. Library data remains on-device and is read
-only when the library refreshes. Shortcut files are written only to a document
-or folder selected by the user. See [PRIVACY.md](PRIVACY.md).
-
-## Relationship to other projects
-
-This project is not affiliated with JoiPlay, Daijishō, or Valve. The focused
-shortcut-generator interaction was inspired by
-[NaviVani-dev/Steam-Shortcut-Generator](https://github.com/NaviVani-dev/Steam-Shortcut-Generator),
-but this repository uses an original native Android implementation, visual
-system, provider integration, assets, and product identity.
-
-Before publishing third-party or modified JoiPlay APKs, verify that you have
-the necessary redistribution rights. The companion app source is licensed
-separately under the [MIT License](LICENSE).
+Release builds are unsigned unless Android signing is configured locally.
