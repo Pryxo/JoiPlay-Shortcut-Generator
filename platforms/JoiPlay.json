@@ -22,8 +22,8 @@
     {
       "name": "joiplay - JoiPlay",
       "uniqueId": "joiplay.joiplay",
-      "description": "JoiPlay game ID player; supported extensions: joiplay, jp",
-      "acceptedFilenameRegex": "^(.*)\\.(?:joiplay|jp)$",
+      "description": "JoiPlay game ID player; supported extension: jp",
+      "acceptedFilenameRegex": "^(.*)\\.jp$",
       "amStartArguments": "-n cyou.joiplay.joiplay/cyou.joiplay.joiplay.activities.ShortcutActivity\n --es id {tags.joiplay_id}\n --activity-clear-top",
       "killPackageProcesses": false,
       "killPackageProcessesWarning": false,

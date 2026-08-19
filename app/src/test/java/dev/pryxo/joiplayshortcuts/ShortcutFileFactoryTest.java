@@ -13,8 +13,16 @@ public final class ShortcutFileFactoryTest {
 
     @Test
     public void createsDocumentedDaijishouTemplate() {
-        String output = ShortcutFileFactory.contents(game("3b6d-123", "A Game"));
+        String output = ShortcutFileFactory.contents(
+                game("3b6d-123", "A Game"), AppPreferences.ShortcutFormat.JP);
         assertEquals("# Daijishou Player Template\n[joiplay_id] 3b6d-123\n...\n", output);
+    }
+
+    @Test
+    public void createsRawIdForIisuFileContentRoute() {
+        String output = ShortcutFileFactory.contents(
+                game("3b6d-123", "A Game"), AppPreferences.ShortcutFormat.JOIPLAY);
+        assertEquals("3b6d-123", output);
     }
 
     @Test
@@ -22,6 +30,11 @@ public final class ShortcutFileFactoryTest {
         Game game = game("id", "Moon / Star: Redux?");
         assertEquals("Moon  Star Redux.jp", ShortcutFileFactory.fileName(game, AppPreferences.ShortcutFormat.JP));
         assertEquals("Moon  Star Redux.joiplay", ShortcutFileFactory.fileName(game, AppPreferences.ShortcutFormat.JOIPLAY));
+    }
+
+    @Test
+    public void usesMimeTypeThatDoesNotRequestTxtExtension() {
+        assertEquals("application/octet-stream", ShortcutFileFactory.mimeType());
     }
 
     @Test

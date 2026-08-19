@@ -10,14 +10,21 @@ public final class ShortcutFileFactory {
     }
 
     public static String mimeType() {
-        return "text/plain";
+        // text/plain makes some document providers silently append ".txt" to
+        // our .jp and .joiplay display names.
+        return "application/octet-stream";
     }
 
     public static String fileName(Game game, AppPreferences.ShortcutFormat format) {
         return sanitizeFileName(game.title) + "." + extension(format);
     }
 
-    public static String contents(Game game) {
+    public static String contents(Game game, AppPreferences.ShortcutFormat format) {
+        if (format == AppPreferences.ShortcutFormat.JOIPLAY) {
+            // iiSU's fileContent route substitutes the complete file into
+            // %ROM_CONTENT%, so this file must contain only the JoiPlay ID.
+            return game.id;
+        }
         return "# Daijishou Player Template\n"
                 + "[joiplay_id] " + game.id + "\n"
                 + "...\n";

@@ -82,7 +82,8 @@ public final class MainActivity extends Activity {
     private Game pendingCustomIconGame;
     private boolean exportAllAfterFolderSelection;
     private boolean rememberOutputFolderSelection;
-    private TextView refreshButton;
+    private View refreshButton;
+    private TextView refreshIcon;
     private ObjectAnimator refreshAnimator;
     private LinearLayout libraryContent;
     private int nextTransitionDirection;
@@ -339,10 +340,17 @@ public final class MainActivity extends Activity {
         row.addView(viewMode, new LinearLayout.LayoutParams(Ui.dp(this, 44), Ui.dp(this, 44)));
         row.addView(Ui.spacer(this, 7, 1));
 
-        refreshButton = Ui.pillButton(this, palette, "↻", false);
-        refreshButton.setTextSize(23);
+        FrameLayout refresh = new FrameLayout(this);
+        refresh.setBackground(Ui.ripple(
+                this, palette.surfaceRaised, Ui.withAlpha(palette.text, 28), 15));
+        refresh.setClickable(true);
+        refresh.setFocusable(true);
+        refreshIcon = Ui.text(this, "↻", 23, palette.text, true);
+        refreshIcon.setGravity(Gravity.CENTER);
+        refresh.addView(refreshIcon, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        refreshButton = refresh;
         refreshButton.setContentDescription("Refresh library");
-        refreshButton.setPadding(0, 0, 0, 0);
         refreshButton.setEnabled(!loading);
         refreshButton.setOnClickListener(view -> refreshLibrary());
         row.addView(refreshButton, new LinearLayout.LayoutParams(Ui.dp(this, 44), Ui.dp(this, 44)));
@@ -935,7 +943,7 @@ public final class MainActivity extends Activity {
 
     private void chooseFormat() {
         AppPreferences.ShortcutFormat[] values = AppPreferences.ShortcutFormat.values();
-        showChoice("Shortcut file type", new String[]{".jp · Compact JoiPlay shortcut", ".joiplay · Dedicated platform"}, preferences.shortcutFormat().ordinal(), index -> {
+        showChoice("Shortcut file type", new String[]{".jp · Daijishō player template", ".joiplay · iiSU file-content shortcut"}, preferences.shortcutFormat().ordinal(), index -> {
             preferences.setShortcutFormat(values[index]);
             showSettings();
         });
@@ -1106,7 +1114,7 @@ public final class MainActivity extends Activity {
             pendingDocumentGame = null;
             executor.execute(() -> {
                 try {
-                    exporter.writeDocument(uri, game);
+                    exporter.writeDocument(uri, game, preferences.shortcutFormat());
                     runOnUiThread(() -> {
                         preferences.markShortcutGenerated(game.id);
                         Toast.makeText(this, "Shortcut generated", Toast.LENGTH_SHORT).show();
@@ -1320,12 +1328,12 @@ public final class MainActivity extends Activity {
     }
 
     private void animateRefresh() {
-        if (refreshButton == null) return;
+        if (refreshButton == null || refreshIcon == null) return;
         if (refreshAnimator != null && refreshAnimator.isRunning()
-                && refreshAnimator.getTarget() == refreshButton) return;
+                && refreshAnimator.getTarget() == refreshIcon) return;
         if (refreshAnimator != null) refreshAnimator.cancel();
         refreshButton.setEnabled(false);
-        refreshAnimator = ObjectAnimator.ofFloat(refreshButton, View.ROTATION, 0f, 360f);
+        refreshAnimator = ObjectAnimator.ofFloat(refreshIcon, View.ROTATION, 0f, 360f);
         refreshAnimator.setDuration(720);
         refreshAnimator.setRepeatCount(ValueAnimator.INFINITE);
         refreshAnimator.setInterpolator(new LinearInterpolator());
@@ -1337,10 +1345,8 @@ public final class MainActivity extends Activity {
             refreshAnimator.cancel();
             refreshAnimator = null;
         }
-        if (refreshButton != null) {
-            refreshButton.setRotation(0f);
-            refreshButton.setEnabled(true);
-        }
+        if (refreshIcon != null) refreshIcon.setRotation(0f);
+        if (refreshButton != null) refreshButton.setEnabled(true);
     }
 
     private static int blend(int base, int overlay, float amount) {

@@ -8,4 +8,4 @@ local.properties
 keystore.properties
 captures/
 .DS_Store
-
+/AGENTS.md

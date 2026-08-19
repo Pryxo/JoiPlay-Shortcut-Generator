@@ -35,10 +35,10 @@ public final class ShortcutExporter {
         resolver = context.getApplicationContext().getContentResolver();
     }
 
-    public void writeDocument(Uri document, Game game) throws IOException {
+    public void writeDocument(Uri document, Game game, AppPreferences.ShortcutFormat format) throws IOException {
         try (OutputStream output = resolver.openOutputStream(document, "wt")) {
             if (output == null) throw new IOException("Could not open the selected document");
-            output.write(ShortcutFileFactory.contents(game).getBytes(StandardCharsets.UTF_8));
+            output.write(ShortcutFileFactory.contents(game, format).getBytes(StandardCharsets.UTF_8));
         }
     }
 
@@ -47,14 +47,18 @@ public final class ShortcutExporter {
                 tree,
                 DocumentsContract.getTreeDocumentId(tree)
         );
-        Uri document = DocumentsContract.createDocument(
-                resolver,
-                directory,
-                ShortcutFileFactory.mimeType(),
-                ShortcutFileFactory.fileName(game, format)
-        );
+        String fileName = ShortcutFileFactory.fileName(game, format);
+        Uri document = findChild(tree, fileName);
+        if (document == null) {
+            document = DocumentsContract.createDocument(
+                    resolver,
+                    directory,
+                    ShortcutFileFactory.mimeType(),
+                    fileName
+            );
+        }
         if (document == null) throw new IOException("The folder did not create a document");
-        writeDocument(document, game);
+        writeDocument(document, game, format);
         return document;
     }
 
@@ -93,7 +97,13 @@ public final class ShortcutExporter {
                 int nameColumn = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_DISPLAY_NAME);
                 while (cursor.moveToNext()) {
                     if (nameColumn < 0 || cursor.isNull(nameColumn)) continue;
-                    String gameId = idsByFileName.get(cursor.getString(nameColumn));
+                    String displayName = cursor.getString(nameColumn);
+                    String gameId = idsByFileName.get(displayName);
+                    // Recognize files made by older builds whose text MIME type
+                    // caused the document provider to add a .txt suffix.
+                    if (gameId == null && displayName.endsWith(".txt")) {
+                        gameId = idsByFileName.get(displayName.substring(0, displayName.length() - 4));
+                    }
                     if (gameId != null) found.add(gameId);
                 }
             }
@@ -101,5 +111,29 @@ public final class ShortcutExporter {
             return found;
         }
         return found;
+    }
+
+    private Uri findChild(Uri tree, String wantedName) {
+        String treeId = DocumentsContract.getTreeDocumentId(tree);
+        Uri children = DocumentsContract.buildChildDocumentsUriUsingTree(tree, treeId);
+        String[] projection = {
+                DocumentsContract.Document.COLUMN_DOCUMENT_ID,
+                DocumentsContract.Document.COLUMN_DISPLAY_NAME
+        };
+        try (Cursor cursor = resolver.query(children, projection, null, null, null)) {
+            if (cursor == null) return null;
+            int idColumn = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_DOCUMENT_ID);
+            int nameColumn = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_DISPLAY_NAME);
+            if (idColumn < 0 || nameColumn < 0) return null;
+            while (cursor.moveToNext()) {
+                if (cursor.isNull(idColumn) || cursor.isNull(nameColumn)) continue;
+                if (wantedName.equalsIgnoreCase(cursor.getString(nameColumn))) {
+                    return DocumentsContract.buildDocumentUriUsingTree(tree, cursor.getString(idColumn));
+                }
+            }
+        } catch (RuntimeException ignored) {
+            return null;
+        }
+        return null;
     }
 }
