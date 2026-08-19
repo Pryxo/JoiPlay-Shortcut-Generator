@@ -15,6 +15,7 @@ public final class JoiPlayRepository {
     public static final String JOIPLAY_PACKAGE = "cyou.joiplay.joiplay";
     public static final String SHORTCUT_ACTIVITY = "cyou.joiplay.joiplay.activities.ShortcutActivity";
     public static final Uri GAMES_URI = Uri.parse("content://cyou.joiplay.joiplay.library/games");
+    public static final Uri ICONS_URI = Uri.parse("content://cyou.joiplay.joiplay.library/icons");
 
     public enum Status {
         READY,
@@ -59,7 +60,6 @@ public final class JoiPlayRepository {
             }
             while (cursor.moveToNext()) {
                 Game game = readGame(cursor);
-                android.util.Log.d("JoiPlayArtProbe", game.title + " | folder=" + game.folder + " | icon=" + game.icon);
                 if (!includeFolders && game.folderEntry) continue;
                 games.add(game);
             }

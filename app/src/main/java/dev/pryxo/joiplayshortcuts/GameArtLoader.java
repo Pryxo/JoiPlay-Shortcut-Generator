@@ -46,6 +46,17 @@ public final class GameArtLoader {
 
     private Bitmap decodeGameIcon(Game game, int targetPixels) {
         if (game.icon.isEmpty()) return null;
+
+        // The provider reads the registered icon in JoiPlay's process. This avoids scoped-storage
+        // failures for games kept outside Download without granting this app broad file access.
+        if (!game.id.isEmpty()) {
+            Uri providerIcon = JoiPlayRepository.ICONS_URI.buildUpon().appendPath(game.id).build();
+            Bitmap provided = decode(providerIcon, targetPixels);
+            if (provided != null) return provided;
+        }
+
+        // Keep the legacy paths as compatibility fallbacks for older patched JoiPlay builds and
+        // for shared-storage locations that remain directly readable.
         Uri uri = Uri.parse(game.icon);
         String scheme = uri.getScheme();
         if ("content".equalsIgnoreCase(scheme) || "file".equalsIgnoreCase(scheme)) {
@@ -70,7 +81,7 @@ public final class GameArtLoader {
                     return stream;
                 }
             }, targetPixels);
-        } catch (IOException | SecurityException ignored) {
+        } catch (IOException | SecurityException | IllegalArgumentException ignored) {
             return null;
         }
     }

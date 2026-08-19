@@ -2,7 +2,9 @@ package dev.pryxo.joiplayshortcuts;
 
 import android.app.Activity;
 import android.app.Dialog;
+import android.animation.ArgbEvaluator;
 import android.animation.ObjectAnimator;
+import android.animation.ValueAnimator;
 import android.content.ActivityNotFoundException;
 import android.content.ClipData;
 import android.content.ClipboardManager;
@@ -31,6 +33,8 @@ import android.view.ViewGroup;
 import android.view.Window;
 import android.view.WindowInsetsController;
 import android.view.WindowManager;
+import android.view.animation.AccelerateDecelerateInterpolator;
+import android.view.animation.LinearInterpolator;
 import android.widget.FrameLayout;
 import android.widget.GridLayout;
 import android.widget.ImageView;
@@ -69,6 +73,8 @@ public final class MainActivity extends Activity {
     private FrameLayout content;
     private TextView libraryNav;
     private TextView settingsNav;
+    private FrameLayout navTrack;
+    private View navSelection;
     private Screen currentScreen = Screen.LIBRARY;
     private JoiPlayRepository.Result libraryResult;
     private boolean loading;
@@ -77,6 +83,7 @@ public final class MainActivity extends Activity {
     private boolean exportAllAfterFolderSelection;
     private boolean rememberOutputFolderSelection;
     private TextView refreshButton;
+    private ObjectAnimator refreshAnimator;
     private int nextTransitionDirection;
 
     @Override
@@ -108,6 +115,7 @@ public final class MainActivity extends Activity {
 
     @Override
     protected void onDestroy() {
+        stopRefreshAnimation();
         if (executor != null) executor.shutdownNow();
         if (artExecutor != null) artExecutor.shutdownNow();
         super.onDestroy();
@@ -127,24 +135,38 @@ public final class MainActivity extends Activity {
         LinearLayout navWrap = Ui.horizontal(this);
         navWrap.setGravity(Gravity.CENTER);
         navWrap.setPadding(Ui.dp(this, 16), Ui.dp(this, 8), Ui.dp(this, 16), Ui.dp(this, 14));
-        LinearLayout nav = Ui.horizontal(this);
-        nav.setPadding(Ui.dp(this, 5), Ui.dp(this, 5), Ui.dp(this, 5), Ui.dp(this, 5));
-        nav.setBackground(Ui.outlined(this, palette.surface, palette.outline, 22));
+        navTrack = new FrameLayout(this);
+        navTrack.setBackground(Ui.outlined(this, palette.surface, palette.outline, 22));
+
+        navSelection = new View(this);
+        navSelection.setBackground(Ui.rounded(this, palette.primary, 17));
+        FrameLayout.LayoutParams selectionParams = new FrameLayout.LayoutParams(0, Ui.dp(this, 46));
+        selectionParams.gravity = Gravity.START | Gravity.CENTER_VERTICAL;
+        selectionParams.setMarginStart(Ui.dp(this, 5));
+        navTrack.addView(navSelection, selectionParams);
+
+        LinearLayout navItems = Ui.horizontal(this);
 
         libraryNav = navItem("▦  Library", true);
         settingsNav = navItem("⚙  Settings", false);
         libraryNav.setOnClickListener(view -> showLibrary());
         settingsNav.setOnClickListener(view -> showSettings());
-        nav.addView(libraryNav, new LinearLayout.LayoutParams(0, Ui.dp(this, 46), 1f));
-        nav.addView(settingsNav, new LinearLayout.LayoutParams(0, Ui.dp(this, 46), 1f));
+        navItems.addView(libraryNav, new LinearLayout.LayoutParams(0, Ui.dp(this, 46), 1f));
+        navItems.addView(settingsNav, new LinearLayout.LayoutParams(0, Ui.dp(this, 46), 1f));
+        FrameLayout.LayoutParams itemParams = new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT);
+        itemParams.setMargins(Ui.dp(this, 5), Ui.dp(this, 5), Ui.dp(this, 5), Ui.dp(this, 5));
+        navTrack.addView(navItems, itemParams);
         int navWidth = Math.min(
                 getResources().getDisplayMetrics().widthPixels - Ui.dp(this, 32),
-                Ui.dp(this, 560)
+                Ui.dp(this, 680)
         );
-        navWrap.addView(nav, new LinearLayout.LayoutParams(
+        navWrap.addView(navTrack, new LinearLayout.LayoutParams(
                 navWidth,
-                ViewGroup.LayoutParams.WRAP_CONTENT
+                Ui.dp(this, 56)
         ));
+        navTrack.addOnLayoutChangeListener((view, left, top, right, bottom,
+                                             oldLeft, oldTop, oldRight, oldBottom) -> positionNavSelection(false));
         root.addView(navWrap);
         return root;
     }
@@ -160,16 +182,50 @@ public final class MainActivity extends Activity {
 
     private void applyNavState(TextView item, boolean selected) {
         item.setTextColor(selected ? palette.onPrimary : palette.textMuted);
-        item.setBackground(selected
-                ? Ui.ripple(this, palette.primary, Ui.withAlpha(palette.onPrimary, 24), 17)
-                : Ui.ripple(this, palette.surface, Ui.withAlpha(palette.text, 20), 17));
+        item.setBackground(Ui.ripple(this, Color.TRANSPARENT,
+                Ui.withAlpha(selected ? palette.onPrimary : palette.text, 24), 17));
     }
 
     private void selectScreen(Screen screen) {
         if (currentScreen != screen) nextTransitionDirection = screen == Screen.SETTINGS ? 1 : -1;
         currentScreen = screen;
-        applyNavState(libraryNav, screen == Screen.LIBRARY);
-        applyNavState(settingsNav, screen == Screen.SETTINGS);
+        animateNavText(libraryNav, screen == Screen.LIBRARY);
+        animateNavText(settingsNav, screen == Screen.SETTINGS);
+        positionNavSelection(true);
+    }
+
+    private void animateNavText(TextView item, boolean selected) {
+        int target = selected ? palette.onPrimary : palette.textMuted;
+        int start = item.getCurrentTextColor();
+        item.setBackground(Ui.ripple(this, Color.TRANSPARENT,
+                Ui.withAlpha(selected ? palette.onPrimary : palette.text, 24), 17));
+        if (start == target) return;
+        ValueAnimator color = ValueAnimator.ofObject(new ArgbEvaluator(), start, target);
+        color.setDuration(220);
+        color.addUpdateListener(animation -> item.setTextColor((Integer) animation.getAnimatedValue()));
+        color.start();
+    }
+
+    private void positionNavSelection(boolean animate) {
+        if (navTrack == null || navSelection == null || navTrack.getWidth() == 0) return;
+        int laneWidth = navTrack.getWidth() - Ui.dp(this, 10);
+        int itemWidth = laneWidth / 2;
+        ViewGroup.LayoutParams rawParams = navSelection.getLayoutParams();
+        if (rawParams.width != itemWidth) {
+            rawParams.width = itemWidth;
+            navSelection.setLayoutParams(rawParams);
+        }
+        float target = currentScreen == Screen.SETTINGS ? itemWidth : 0f;
+        navSelection.animate().cancel();
+        if (animate) {
+            navSelection.animate()
+                    .translationX(target)
+                    .setDuration(280)
+                    .setInterpolator(new AccelerateDecelerateInterpolator())
+                    .start();
+        } else {
+            navSelection.setTranslationX(target);
+        }
     }
 
     private void showLibrary() {
@@ -195,6 +251,7 @@ public final class MainActivity extends Activity {
             runOnUiThread(() -> {
                 loading = false;
                 libraryResult = result;
+                stopRefreshAnimation();
                 if (currentScreen == Screen.LIBRARY) renderLibrary();
             });
         });
@@ -206,7 +263,7 @@ public final class MainActivity extends Activity {
         scroll.setClipToPadding(false);
         LinearLayout page = Ui.vertical(this);
         page.setPadding(Ui.dp(this, 18), Ui.dp(this, 22), Ui.dp(this, 18), Ui.dp(this, 28));
-        attachCenteredPage(scroll, page);
+        attachCenteredPage(scroll, page, 1240);
 
         page.addView(libraryHeader());
         page.addView(Ui.spacer(this, 1, 18));
@@ -276,6 +333,7 @@ public final class MainActivity extends Activity {
         refreshButton.setEnabled(!loading);
         refreshButton.setOnClickListener(view -> refreshLibrary());
         row.addView(refreshButton, new LinearLayout.LayoutParams(Ui.dp(this, 44), Ui.dp(this, 44)));
+        if (loading) refreshButton.post(this::animateRefresh);
         return row;
     }
 
@@ -296,9 +354,12 @@ public final class MainActivity extends Activity {
         card.setBackground(Ui.rounded(this, blend(palette.surface, palette.primary, palette.dark ? 0.22f : 0.13f), 22));
         card.addView(Ui.text(this, "LIBRARY CONNECTED", 11, palette.primary, true));
         card.addView(Ui.spacer(this, 1, 6));
-        card.addView(Ui.text(this, "Total Games: " + playable, 19, palette.text, true));
-        card.addView(Ui.spacer(this, 1, 3));
-        card.addView(Ui.text(this, "Total Launches: " + launches, 15, palette.text, true));
+        String gameCount = playable == 1 ? "1 game" : playable + " games";
+        String launchCount = launches == 1 ? "1 launch" : launches + " launches";
+        TextView totals = Ui.text(this, gameCount + "  •  " + launchCount, 19, palette.text, true);
+        totals.setMaxLines(1);
+        totals.setEllipsize(TextUtils.TruncateAt.END);
+        card.addView(totals);
         card.addView(Ui.spacer(this, 1, 6));
         String shortcutStatus = generated == 0
                 ? "No shortcut files generated yet"
@@ -438,9 +499,10 @@ public final class MainActivity extends Activity {
 
     private View gameGrid(List<Game> games) {
         int screenWidth = getResources().getDisplayMetrics().widthPixels;
-        int laneWidth = Math.min(screenWidth - Ui.dp(this, 36), Ui.dp(this, 780));
-        int columns = laneWidth >= Ui.dp(this, 620) ? 3 : 2;
+        int laneWidth = Math.min(screenWidth - Ui.dp(this, 60), Ui.dp(this, 1204));
         int gap = Ui.dp(this, 10);
+        int columns = Math.max(2, Math.min(5,
+                (laneWidth + gap) / (Ui.dp(this, 220) + gap)));
         int cardWidth = (laneWidth - gap * (columns - 1)) / columns;
 
         GridLayout grid = new GridLayout(this);
@@ -548,7 +610,7 @@ public final class MainActivity extends Activity {
         scroll.setClipToPadding(false);
         LinearLayout page = Ui.vertical(this);
         page.setPadding(Ui.dp(this, 18), Ui.dp(this, 22), Ui.dp(this, 18), Ui.dp(this, 30));
-        attachCenteredPage(scroll, page);
+        attachCenteredPage(scroll, page, 860);
 
         page.addView(Ui.text(this, "Settings", 27, palette.text, true));
         page.addView(Ui.spacer(this, 1, 4));
@@ -796,11 +858,11 @@ public final class MainActivity extends Activity {
         window.setAttributes(params);
     }
 
-    private void attachCenteredPage(ScrollView scroll, LinearLayout page) {
+    private void attachCenteredPage(ScrollView scroll, LinearLayout page, int maxWidthDp) {
         FrameLayout lane = new FrameLayout(this);
         int pageWidth = Math.min(
                 getResources().getDisplayMetrics().widthPixels - Ui.dp(this, 24),
-                Ui.dp(this, 780)
+                Ui.dp(this, maxWidthDp)
         );
         FrameLayout.LayoutParams pageParams = new FrameLayout.LayoutParams(
                 pageWidth,
@@ -1217,27 +1279,53 @@ public final class MainActivity extends Activity {
     }
 
     private void installContent(View view, FrameLayout.LayoutParams params) {
-        content.removeAllViews();
+        View outgoing = content.getChildCount() == 0 ? null : content.getChildAt(content.getChildCount() - 1);
         content.addView(view, params);
         int direction = nextTransitionDirection;
         nextTransitionDirection = 0;
         view.setAlpha(0f);
-        if (direction == 0) {
-            view.setTranslationY(Ui.dp(this, 10));
-            view.animate().alpha(1f).translationY(0f).setDuration(230).start();
-        } else {
-            view.setTranslationX(Ui.dp(this, 30) * direction);
-            view.animate().alpha(1f).translationX(0f).setDuration(260).start();
+        view.setTranslationX(direction == 0 ? 0f : Ui.dp(this, 26) * direction);
+        view.setTranslationY(direction == 0 ? Ui.dp(this, 8) : 0f);
+
+        AccelerateDecelerateInterpolator interpolator = new AccelerateDecelerateInterpolator();
+        view.animate().alpha(1f).translationX(0f).translationY(0f)
+                .setDuration(direction == 0 ? 220 : 290)
+                .setInterpolator(interpolator)
+                .start();
+        if (outgoing != null && outgoing != view) {
+            outgoing.animate().cancel();
+            outgoing.animate()
+                    .alpha(0f)
+                    .translationX(direction == 0 ? 0f : Ui.dp(this, -18) * direction)
+                    .setDuration(direction == 0 ? 170 : 240)
+                    .setInterpolator(interpolator)
+                    .withEndAction(() -> content.removeView(outgoing))
+                    .start();
         }
     }
 
     private void animateRefresh() {
         if (refreshButton == null) return;
+        if (refreshAnimator != null && refreshAnimator.isRunning()
+                && refreshAnimator.getTarget() == refreshButton) return;
+        if (refreshAnimator != null) refreshAnimator.cancel();
         refreshButton.setEnabled(false);
-        ObjectAnimator rotation = ObjectAnimator.ofFloat(
-                refreshButton, View.ROTATION, refreshButton.getRotation(), refreshButton.getRotation() + 360f);
-        rotation.setDuration(650);
-        rotation.start();
+        refreshAnimator = ObjectAnimator.ofFloat(refreshButton, View.ROTATION, 0f, 360f);
+        refreshAnimator.setDuration(720);
+        refreshAnimator.setRepeatCount(ValueAnimator.INFINITE);
+        refreshAnimator.setInterpolator(new LinearInterpolator());
+        refreshAnimator.start();
+    }
+
+    private void stopRefreshAnimation() {
+        if (refreshAnimator != null) {
+            refreshAnimator.cancel();
+            refreshAnimator = null;
+        }
+        if (refreshButton != null) {
+            refreshButton.setRotation(0f);
+            refreshButton.setEnabled(true);
+        }
     }
 
     private static int blend(int base, int overlay, float amount) {

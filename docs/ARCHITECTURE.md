@@ -26,3 +26,7 @@ The app accepts the fixed columns `_id`, `id`, `title`, `folder`, `execFile`,
 `parentGame`, `launchComponent`, and `launchIntentUri`. Missing optional columns
 degrade to empty/default values so minor provider revisions fail gracefully.
 
+Game artwork is opened through the provider's read-only
+`content://cyou.joiplay.joiplay.library/icons/<game-id>` endpoint. The provider
+resolves the registered icon inside JoiPlay's process, avoiding broad storage
+permissions and Android scoped-storage inconsistencies in the companion app.
