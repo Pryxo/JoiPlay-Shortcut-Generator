@@ -1,0 +1,11 @@
+<resources>
+    <style name="Theme.JoiPlayShortcuts" parent="android:style/Theme.Material.NoActionBar">
+        <item name="android:fontFamily">sans</item>
+        <item name="android:windowActionModeOverlay">true</item>
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:navigationBarColor">#090D13</item>
+        <item name="android:statusBarColor">#090D13</item>
+        <item name="android:windowDisablePreview">true</item>
+    </style>
+</resources>

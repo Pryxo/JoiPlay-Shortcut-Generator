@@ -1,0 +1,34 @@
+{
+  "databaseVersion": 14,
+  "revisionNumber": 1,
+  "platform": {
+    "name": "JoiPlay",
+    "uniqueId": "joiplay",
+    "shortname": "joiplay",
+    "description": "Games installed in JoiPlay",
+    "acceptedFilenameRegex": "^(?!(?:\\._|\\.).*).*$",
+    "scraperSourceList": [],
+    "boxArtAspectRatioId": 0,
+    "useCustomBoxArtAspectRatio": false,
+    "customBoxArtAspectRatio": null,
+    "screenAspectRatioId": 0,
+    "useCustomScreenAspectRatio": false,
+    "customScreenAspectRatio": null,
+    "retroAchievementsAlias": null,
+    "retroAchievementsSystemId": null,
+    "extra": ""
+  },
+  "playerList": [
+    {
+      "name": "joiplay - JoiPlay",
+      "uniqueId": "joiplay.joiplay",
+      "description": "JoiPlay game ID player; supported extensions: joiplay, dpt",
+      "acceptedFilenameRegex": "^(.*)\\.(?:joiplay|dpt)$",
+      "amStartArguments": "-n cyou.joiplay.joiplay/cyou.joiplay.joiplay.activities.ShortcutActivity\n --es id {tags.joiplay_id}\n --activity-clear-top",
+      "killPackageProcesses": false,
+      "killPackageProcessesWarning": false,
+      "extra": ""
+    }
+  ]
+}
+
