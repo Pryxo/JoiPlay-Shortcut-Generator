@@ -1,29 +1,42 @@
 # JoiPlay Shortcut Generator
 
-Create a small Android launcher APK that opens a specific JoiPlay game. This is
-useful with launchers and android frontends that display installed apps but do
-not support JoiPlay's native Android shortcuts.
+Browse your JoiPlay library, launch games, pin games to the Android Home screen,
+and generate shortcut files for Android frontends such as iiSU.
 
-The generated APK contains no game files. The provided Modified JoiPlay build
-and the configured game must already be installed on the same Android device.
+Generated `.jp` and `.joiplay` files contain only the game's JoiPlay library ID;
+they do not contain or copy any game files. A compatible Modified JoiPlay build
+and the configured games must be installed on the same Android device.
 
 ## Why Modified JoiPlay is required
 
-The generated launcher starts JoiPlay's `ShortcutActivity` with the selected
-game ID. Standard JoiPlay does not allow another installed app to start this
-activity, so the launcher requires the provided modified build.
+Standard JoiPlay does not expose the integration points this app needs. The
+provided Modified JoiPlay builds add:
+
+- A permission-protected, read-only provider that exposes the JoiPlay library
+  details used by the generator.
+- A read-only artwork endpoint that loads each game's registered icon, including
+  artwork in scoped-storage locations, without broad storage access.
+- An exported `ShortcutActivity` that accepts a JoiPlay game ID, allowing the
+  generator, pinned Home-screen shortcuts, and compatible frontends to launch
+  that game directly.
+
+These changes let the generator read and display the existing JoiPlay library;
+they do not copy games into the generator. Standard JoiPlay lacks the library
+and artwork providers and blocks external access to `ShortcutActivity`, so it is
+not compatible.
 
 The setup guide explains how to install the modified build and includes an
 important warning about backing up data before replacing an existing JoiPlay
 installation.
 
-# Setup guide
-## Requirements
+## Setup guide
+
+### Requirements
 
 - Android 8.0 or newer
 - Modified JoiPlay with at least one game added
 
-## Before you start
+### Before you start
 
 Make sure you have:
 
@@ -40,30 +53,36 @@ Make sure you have:
 
 ### Steps
 
-1. Download the generator APK and the modified JoiPlay APK matching your JoiPlay version from this repository's **Releases** page.
+1. Download the generator APK and the Modified JoiPlay APK for the JoiPlay version you want to use from this repository's **Releases** page.
 2. Back up your existing JoiPlay data before replacing an installed JoiPlay app.
 3. Install the matching modified JoiPlay APK.
-4. Add your games back into the new Modified JoiPlay.
+4. Add or restore your games in Modified JoiPlay.
 5. Install the JoiPlay Shortcut Generator APK.
-6. Select the folder where it generates the shortcut files for the frontends.
-7. Open JoiPlay Shortcut Generator and refresh the Library.
+6. Open JoiPlay Shortcut Generator and refresh the Library.
+7. To create frontend files, select an output folder and generate the missing
+   `.jp` or `.joiplay` files. To create an Android launcher shortcut, hold a
+   game, open its details, and select **Pin to Home**.
 
 Android might ask you to allow APK installation from your browser or file
 manager. If Android reports a signature conflict, back up JoiPlay, uninstall
 the existing JoiPlay app, and then install the included APK.
 
-### iiSU Extra Steps
+### iiSU setup
 
-1. Open JoiPlay Shortcut Generator and either go to settings or press the big button on the header that says "Select iiSU folder"
-2. Select the iiSU folder that is named "iiSU" and has "iiSULauncher" as a folder inside.
-3. After that it should have added the support into iiSU
-4. Go to the Platform Tab and press Menu, then select "Add Console" and search for JoiPlay
-5. After its added all your generated games should pop up.
+1. In JoiPlay Shortcut Generator, open **Settings** or select **Select iiSU
+   folder** in the Library header.
+2. Select the iiSU root folder that contains the `iiSULauncher` folder.
+3. Select **Import JoiPlay Support into iiSU** and wait for **JoiPlay support
+   imported** to appear.
+4. In iiSU, open the **Platform** tab, choose **Menu** > **Add Console**, and add
+   JoiPlay.
+5. Scan the output folder containing your generated `.jp` or `.joiplay` files.
 
 ## What JoiPlay Shortcut Generator does
 
 - Reads the game list exposed by a compatible modified JoiPlay build.
 - Launches games and displays their artwork and useful library details.
+- Pins individual games to the Android Home screen with their artwork.
 - Generates `.jp` and `.joiplay` shortcut files for compatible frontends.
 - Imports JoiPlay platform and emulator support directly into a selected iiSU
   installation, then verifies the integration whenever the library refreshes.
@@ -72,8 +91,8 @@ the existing JoiPlay app, and then install the included APK.
 - Offers list/grid views, sorting, themes, custom icons, and configurable tap
   behavior.
 - Saves settings immediately, requests a settings-only Android backup after
-  every change, and mirrors portable settings to the selected JoiPlay folder.
-  After reinstalling, select the same JoiPlay folder to restore that snapshot.
+  every change, and mirrors portable settings to the selected output folder.
+  After reinstalling, select the same output folder to restore that snapshot.
   Android revokes folder and custom-image access on uninstall, so those grants
   must be selected again.
 
