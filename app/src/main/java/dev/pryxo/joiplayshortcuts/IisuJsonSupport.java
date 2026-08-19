@@ -143,7 +143,7 @@ final class IisuJsonSupport {
         JSONObject command = commands.optJSONObject(0);
         return command != null
                 && "JoiPlay".equals(command.optString("description"))
-                && "cyou.joiplay.joiplay/.activities.ShortcutActivity --es id \"%ROM_CONTENT%\""
+                && "cyou.joiplay.joiplay/.activities.ShortcutActivity -e id \"%ROM_CONTENT%\""
                 .equals(command.optString("command"));
     }
 
@@ -155,7 +155,7 @@ final class IisuJsonSupport {
     private static JSONObject platformEntry() throws JSONException {
         JSONObject command = new JSONObject()
                 .put("description", "JoiPlay")
-                .put("command", "cyou.joiplay.joiplay/.activities.ShortcutActivity --es id \"%ROM_CONTENT%\"");
+                .put("command", "cyou.joiplay.joiplay/.activities.ShortcutActivity -e id \"%ROM_CONTENT%\"");
         JSONObject emulator = new JSONObject()
                 .put("id", "JOIPLAY")
                 .put("name", "JoiPlay (Standalone)")

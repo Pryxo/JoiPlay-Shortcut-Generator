@@ -137,7 +137,7 @@ The injected platform definition is:
       "commands": [
         {
           "description": "JoiPlay",
-          "command": "cyou.joiplay.joiplay/.activities.ShortcutActivity --es id \"%ROM_CONTENT%\""
+          "command": "cyou.joiplay.joiplay/.activities.ShortcutActivity -e id \"%ROM_CONTENT%\""
         }
       ],
       "packages": [

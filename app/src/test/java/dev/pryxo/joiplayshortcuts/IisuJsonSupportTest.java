@@ -58,7 +58,7 @@ public final class IisuJsonSupportTest {
         JSONObject command = platform.getJSONArray("emulators")
                 .getJSONObject(0).getJSONArray("commands").getJSONObject(0);
 
-        assertEquals("cyou.joiplay.joiplay/.activities.ShortcutActivity --es id \"%ROM_CONTENT%\"",
+        assertEquals("cyou.joiplay.joiplay/.activities.ShortcutActivity -e id \"%ROM_CONTENT%\"",
                 command.getString("command"));
         assertEquals(".jp", platform.getJSONArray("romExtensions").getString(0));
         assertEquals(".JOIPLAY", platform.getJSONArray("romExtensions").getString(3));

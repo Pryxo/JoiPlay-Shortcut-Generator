@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.2.1 - 2026-08-20
+
+### Fixed
+
+- Update the iiSU JoiPlay platform definition to launch `ShortcutActivity` with
+  the compatible `-e id "%ROM_CONTENT%"` argument syntax.
+
 ## 1.2.0 - 2026-08-19
 
 This release adds built-in JoiPlay integration for iiSU.
