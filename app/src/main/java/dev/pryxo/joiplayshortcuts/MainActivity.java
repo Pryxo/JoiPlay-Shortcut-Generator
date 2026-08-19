@@ -48,6 +48,7 @@ import android.widget.Toast;
 import java.text.DateFormat;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.Date;
 import java.util.List;
 import java.util.Locale;
@@ -149,7 +150,7 @@ public final class MainActivity extends Activity {
 
         LinearLayout navItems = Ui.horizontal(this);
 
-        libraryNav = navItem("▦  Library", true);
+        libraryNav = navItem("▦  Library (0/0)", true);
         settingsNav = navItem("⚙  Settings", false);
         libraryNav.setOnClickListener(view -> showLibrary());
         settingsNav.setOnClickListener(view -> showSettings());
@@ -244,10 +245,14 @@ public final class MainActivity extends Activity {
         AppPreferences.SortOrder sort = preferences.sortOrder();
         executor.execute(() -> {
             JoiPlayRepository.Result result = repository.load(includeFolders, sort);
-            if (result.isReady() && preferences.outputTree() != null) {
-                Set<String> existing = exporter.findExisting(
-                        preferences.outputTree(), result.games, preferences.shortcutFormat());
-                preferences.markShortcutsGenerated(existing);
+            if (result.isReady()) {
+                Uri outputTree = preferences.outputTree();
+                Set<String> existing = outputTree == null
+                        ? Collections.emptySet()
+                        : exporter.findExisting(outputTree, result.games, preferences.shortcutFormat());
+                // The folder scan is authoritative. Replacing the snapshot also
+                // removes badges for shortcut files deleted outside this app.
+                preferences.replaceGeneratedShortcuts(existing);
             }
             runOnUiThread(() -> {
                 loading = false;
@@ -287,6 +292,7 @@ public final class MainActivity extends Activity {
 
     private void renderLibraryContent() {
         if (libraryContent == null) return;
+        updateLibraryNavLabel();
         libraryContent.removeAllViews();
 
         if (libraryResult == null) {
@@ -307,6 +313,19 @@ public final class MainActivity extends Activity {
                 }
             }
         }
+    }
+
+    private void updateLibraryNavLabel() {
+        int generated = 0;
+        int total = 0;
+        if (libraryResult != null && libraryResult.isReady()) {
+            for (Game game : libraryResult.games) {
+                if (game.folderEntry) continue;
+                total++;
+                if (preferences.isShortcutGenerated(game.id)) generated++;
+            }
+        }
+        libraryNav.setText(String.format(Locale.ROOT, "▦  Library (%d/%d)", generated, total));
     }
 
     private View libraryHeader() {
@@ -1018,7 +1037,9 @@ public final class MainActivity extends Activity {
 
     private void exportAll(List<Game> games) {
         if (preferences.outputTree() == null) {
-            chooseOutputFolder(true, false);
+            // Remember the selected folder so future launches and refreshes can
+            // verify which generated files still exist.
+            chooseOutputFolder(true, true);
             return;
         }
         exportAllToConfiguredFolder(games);
@@ -1361,7 +1382,7 @@ public final class MainActivity extends Activity {
         try {
             return getPackageManager().getPackageInfo(getPackageName(), 0).versionName;
         } catch (Exception ignored) {
-            return "0.1.0";
+            return "1.0.0";
         }
     }
 

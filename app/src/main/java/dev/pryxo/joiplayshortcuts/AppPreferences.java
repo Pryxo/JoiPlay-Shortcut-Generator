@@ -138,6 +138,13 @@ public final class AppPreferences {
         preferences.edit().putStringSet(GENERATED_IDS, ids).apply();
     }
 
+    public void replaceGeneratedShortcuts(Set<String> gameIds) {
+        Set<String> ids = gameIds == null ? new HashSet<>() : new HashSet<>(gameIds);
+        ids.remove(null);
+        ids.remove("");
+        preferences.edit().putStringSet(GENERATED_IDS, ids).apply();
+    }
+
     private static <T extends Enum<T>> T enumValue(Class<T> type, String value, T fallback) {
         try {
             return Enum.valueOf(type, value == null ? "" : value);

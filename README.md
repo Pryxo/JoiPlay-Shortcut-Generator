@@ -9,9 +9,9 @@
 
 ### Steps
 
-1. Download the latest release package from this repository's **Releases** page.
+1. Download the generator APK and the modified JoiPlay APK matching your JoiPlay version from this repository's **Releases** page.
 2. Back up your existing JoiPlay data before replacing an installed JoiPlay app.
-3. Install the JoiPlay APK included with the release package.
+3. Install the matching modified JoiPlay APK.
 4. Install the JoiPlay Shortcut Generator APK.
 5. Open JoiPlay Shortcut Generator and refresh the Library.
 
@@ -46,6 +46,16 @@ app/build/outputs/apk/debug/app-debug.apk
 ```
 
 Release builds are unsigned unless Android signing is configured locally.
+
+## What it does
+
+- Reads the game list exposed by a compatible modified JoiPlay build.
+- Launches games and displays their artwork and useful library details.
+- Generates `.jp` and `.joiplay` shortcut files for compatible frontends.
+- Rechecks the chosen output folder on launch and refresh, including a live
+  generated/total count in the Library tab.
+- Offers list/grid views, sorting, themes, custom icons, and configurable tap
+  behavior.
 
 ## Frontend shortcut formats
 
