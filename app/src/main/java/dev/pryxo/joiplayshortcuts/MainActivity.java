@@ -411,7 +411,7 @@ public final class MainActivity extends Activity {
         card.addView(Ui.spacer(this, 1, 5));
         card.addView(Ui.text(this, "Tap to launch. Hold any game for details and shortcut tools.", 12, palette.textMuted, false));
         card.addView(Ui.spacer(this, 1, 16));
-        TextView exportAll = Ui.pillButton(this, palette, "Generate all shortcut files", true);
+        TextView exportAll = Ui.pillButton(this, palette, "Generate all missing shortcut files", true);
         exportAll.setOnClickListener(view -> exportAll(games));
         card.addView(exportAll, Ui.matchWrap());
         return card;
@@ -1382,7 +1382,7 @@ public final class MainActivity extends Activity {
         try {
             return getPackageManager().getPackageInfo(getPackageName(), 0).versionName;
         } catch (Exception ignored) {
-            return "1.0.0";
+            return "1.0.1";
         }
     }
 
