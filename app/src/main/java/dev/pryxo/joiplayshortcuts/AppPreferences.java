@@ -28,6 +28,7 @@ public final class AppPreferences {
     private static final String SORT = "sort_order";
     private static final String TAP = "tap_action";
     private static final String TREE_URI = "output_tree_uri";
+    private static final String IISU_TREE_URI = "iisu_tree_uri";
     private static final String SHOW_FOLDERS = "show_folder_entries";
     private static final String VIEW_MODE = "view_mode";
     private static final String GENERATED_IDS = "generated_ids";
@@ -113,6 +114,17 @@ public final class AppPreferences {
     public void setOutputTree(Uri uri) {
         SharedPreferences.Editor editor = preferences.edit();
         if (uri == null) editor.remove(TREE_URI); else editor.putString(TREE_URI, uri.toString());
+        save(editor);
+    }
+
+    public Uri iisuTree() {
+        String value = preferences.getString(IISU_TREE_URI, "");
+        return value == null || value.trim().isEmpty() ? null : Uri.parse(value);
+    }
+
+    public void setIisuTree(Uri uri) {
+        SharedPreferences.Editor editor = preferences.edit();
+        if (uri == null) editor.remove(IISU_TREE_URI); else editor.putString(IISU_TREE_URI, uri.toString());
         save(editor);
     }
 

@@ -19,8 +19,8 @@ android {
         applicationId = "dev.pryxo.joiplayshortcuts"
         minSdk = 26
         targetSdk = 36
-        versionCode = 5
-        versionName = "1.1.2"
+        versionCode = 6
+        versionName = "1.2.0"
 
         testInstrumentationRunner = "android.test.InstrumentationTestRunner"
     }
@@ -68,4 +68,5 @@ android {
 
 dependencies {
     testImplementation("junit:junit:4.13.2")
+    testImplementation("org.json:json:20240303")
 }

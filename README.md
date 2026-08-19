@@ -52,6 +52,8 @@ Release builds are unsigned unless Android signing is configured locally.
 - Reads the game list exposed by a compatible modified JoiPlay build.
 - Launches games and displays their artwork and useful library details.
 - Generates `.jp` and `.joiplay` shortcut files for compatible frontends.
+- Imports JoiPlay platform and emulator support directly into a selected iiSU
+  installation, then verifies the integration whenever the library refreshes.
 - Rechecks `.jp` and `.joiplay` files by their JoiPlay ID on launch and refresh,
   including format-specific badges and a live generated/total count.
 - Offers list/grid views, sorting, themes, custom icons, and configurable tap
@@ -68,15 +70,25 @@ Release builds are unsigned unless Android signing is configured locally.
 - The extensions are interchangeable for frontends that launch JoiPlay with a
   `fileContent` route and the `%ROM_CONTENT%` command placeholder.
 
-For iiSU, add `platforms/JoiPlay.json` to the emulator list and scan the folder
-containing the generated `.jp` or `.joiplay` files. Its contents are:
+For iiSU, select the folder containing `iiSULauncher`, then use **Import JoiPlay
+Support into iiSU** in the Library header. The generator safely adds the
+JoiPlay definitions to:
+
+```text
+iiSULauncher/Emuladores/emuladores.json
+iiSULauncher/Emuladores/supported_emulators.json
+```
+
+The action is duplicate-safe, supports iiSU's `consoles` wrapper format, and
+changes to **JoiPlay support imported** after both files have been verified.
+The injected platform definition is:
 
 ```json
 {
   "shortName": "joiplay",
   "longName": "JoiPlay",
-  "releaseYear": "",
-  "releaseDate": "",
+  "releaseYear": "2019",
+  "releaseDate": "2019-12-16",
   "manufacturer": "JoiPlay",
   "retroAchievementsId": "NA",
   "romExtensions": [

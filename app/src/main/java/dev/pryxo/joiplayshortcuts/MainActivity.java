@@ -59,6 +59,7 @@ public final class MainActivity extends Activity {
     private static final int REQUEST_CREATE_DOCUMENT = 40;
     private static final int REQUEST_OUTPUT_TREE = 41;
     private static final int REQUEST_CUSTOM_ICON = 42;
+    private static final int REQUEST_IISU_TREE = 43;
     private static final String PROJECT_URL = "https://github.com/Pryxo/JoiPlay-Shortcut-Generator";
 
     private enum Screen { LIBRARY, SETTINGS }
@@ -68,6 +69,7 @@ public final class MainActivity extends Activity {
     private JoiPlayRepository repository;
     private ShortcutExporter exporter;
     private SettingsFileStore settingsFileStore;
+    private IisuSupportManager iisuSupportManager;
     private GameArtLoader artLoader;
     private ExecutorService executor;
     private ExecutorService artExecutor;
@@ -85,7 +87,11 @@ public final class MainActivity extends Activity {
     private boolean rememberOutputFolderSelection;
     private View refreshButton;
     private TextView refreshIcon;
+    private TextView iisuActionButton;
     private ObjectAnimator refreshAnimator;
+    private IisuSupportManager.Status iisuStatus = IisuSupportManager.Status.NOT_CONFIGURED;
+    private String iisuStatusMessage = "Select the iiSU folder";
+    private boolean iisuWorking;
     private LinearLayout libraryContent;
     private int nextTransitionDirection;
 
@@ -99,6 +105,7 @@ public final class MainActivity extends Activity {
         repository = new JoiPlayRepository(this);
         exporter = new ShortcutExporter(this);
         settingsFileStore = new SettingsFileStore(this);
+        iisuSupportManager = new IisuSupportManager(this);
         artLoader = new GameArtLoader(this, preferences);
         preferences.setPortableSettingsChangedListener(this::scheduleSettingsBackup);
         scheduleSettingsBackup();
@@ -246,7 +253,11 @@ public final class MainActivity extends Activity {
         animateRefresh();
         boolean includeFolders = preferences.showFolderEntries();
         AppPreferences.SortOrder sort = preferences.sortOrder();
+        iisuStatus = preferences.iisuTree() == null
+                ? IisuSupportManager.Status.NOT_CONFIGURED : IisuSupportManager.Status.CHECKING;
+        updateIisuActionButton();
         executor.execute(() -> {
+            IisuSupportManager.Result iisuResult = iisuSupportManager.scan(preferences.iisuTree());
             JoiPlayRepository.Result result = repository.load(includeFolders, sort);
             if (result.isReady()) {
                 Uri outputTree = preferences.outputTree();
@@ -263,7 +274,10 @@ public final class MainActivity extends Activity {
             runOnUiThread(() -> {
                 loading = false;
                 libraryResult = result;
+                iisuStatus = iisuResult.status;
+                iisuStatusMessage = iisuResult.message;
                 stopRefreshAnimation();
+                updateIisuActionButton();
                 if (currentScreen == Screen.LIBRARY) {
                     if (libraryContent != null && libraryContent.isAttachedToWindow()) {
                         renderLibraryContent();
@@ -335,6 +349,7 @@ public final class MainActivity extends Activity {
     }
 
     private View libraryHeader() {
+        LinearLayout header = Ui.vertical(this);
         LinearLayout row = Ui.horizontal(this);
         ImageView mark = new ImageView(this);
         mark.setImageDrawable(artLoader.joiPlayDrawable());
@@ -349,6 +364,19 @@ public final class MainActivity extends Activity {
         labels.addView(Ui.text(this, "JoiPlay Shortcut Generator", 20, palette.text, true));
         labels.addView(Ui.text(this, "Your library, ready for every frontend", 12, palette.textMuted, false));
         row.addView(labels, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+
+        iisuActionButton = Ui.pillButton(this, palette, iisuActionLabel(), true);
+        iisuActionButton.setTextSize(12);
+        iisuActionButton.setMaxLines(2);
+        iisuActionButton.setOnClickListener(view -> handleIisuAction());
+        updateIisuActionButton();
+        boolean wideHeader = getResources().getConfiguration().screenWidthDp >= 700;
+        if (wideHeader) {
+            row.addView(Ui.spacer(this, 12, 1));
+            row.addView(iisuActionButton,
+                    new LinearLayout.LayoutParams(Ui.dp(this, 270), Ui.dp(this, 44)));
+            row.addView(Ui.spacer(this, 8, 1));
+        }
 
         TextView viewMode = Ui.pillButton(this, palette,
                 preferences.viewMode() == AppPreferences.ViewMode.LIST ? "▦" : "☷", false);
@@ -380,7 +408,12 @@ public final class MainActivity extends Activity {
         refreshButton.setOnClickListener(view -> refreshLibrary());
         row.addView(refreshButton, new LinearLayout.LayoutParams(Ui.dp(this, 44), Ui.dp(this, 44)));
         if (loading) refreshButton.post(this::animateRefresh);
-        return row;
+        header.addView(row, Ui.matchWrap());
+        if (!wideHeader) {
+            header.addView(Ui.spacer(this, 1, 10));
+            header.addView(iisuActionButton, Ui.matchWrap());
+        }
+        return header;
     }
 
     private View librarySummary(List<Game> games) {
@@ -678,7 +711,7 @@ public final class MainActivity extends Activity {
 
         page.addView(sectionLabel("SHORTCUTS"));
         ArrayList<View> shortcutRows = new ArrayList<>();
-        shortcutRows.add(settingRow("File type", "Daijishō player-template output", formatLabel(), () -> chooseFormat()));
+        shortcutRows.add(settingRow("File type", "Generated Shortcut Output", formatLabel(), () -> chooseFormat()));
         shortcutRows.add(settingRow("Output folder", outputPathLabel(), outputLabel(), () -> chooseOutputFolder(false, true)));
         if (preferences.outputTree() != null) {
             shortcutRows.add(settingRow("Forget output folder", "Return to choosing a destination when generating", "Clear", () -> {
@@ -689,6 +722,21 @@ public final class MainActivity extends Activity {
         }
         shortcutRows.add(settingRow("Tap behavior", "What happens when you tap a library game", tapLabel(), () -> chooseTapAction()));
         page.addView(settingsGroup(shortcutRows));
+        page.addView(Ui.spacer(this, 1, 20));
+
+        page.addView(sectionLabel("IISU INTEGRATION"));
+        ArrayList<View> iisuRows = new ArrayList<>();
+        iisuRows.add(settingRow("iiSU folder", iisuPathLabel(), iisuSettingValue(), this::chooseIisuFolder));
+        if (preferences.iisuTree() != null) {
+            iisuRows.add(settingRow("Forget iiSU folder", "Remove access to the selected iiSU installation", "Clear", () -> {
+                preferences.setIisuTree(null);
+                iisuStatus = IisuSupportManager.Status.NOT_CONFIGURED;
+                iisuStatusMessage = "Select the iiSU folder";
+                Toast.makeText(this, "iiSU folder cleared", Toast.LENGTH_SHORT).show();
+                showSettings();
+            }));
+        }
+        page.addView(settingsGroup(iisuRows));
         page.addView(Ui.spacer(this, 1, 20));
 
         page.addView(sectionLabel("LIBRARY"));
@@ -1017,6 +1065,66 @@ public final class MainActivity extends Activity {
         startActivityForResult(intent, REQUEST_OUTPUT_TREE);
     }
 
+    private void chooseIisuFolder() {
+        Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
+        intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION
+                | Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION
+                | Intent.FLAG_GRANT_PREFIX_URI_PERMISSION);
+        Uri existing = preferences.iisuTree();
+        if (existing != null) intent.putExtra("android.provider.extra.INITIAL_URI", existing);
+        startActivityForResult(intent, REQUEST_IISU_TREE);
+    }
+
+    private void handleIisuAction() {
+        if (preferences.iisuTree() == null) {
+            chooseIisuFolder();
+        } else if (iisuStatus == IisuSupportManager.Status.IMPORTED) {
+            Toast.makeText(this, "JoiPlay support is already imported into iiSU", Toast.LENGTH_SHORT).show();
+        } else {
+            importIisuSupport();
+        }
+    }
+
+    private void importIisuSupport() {
+        Uri tree = preferences.iisuTree();
+        if (tree == null || iisuWorking) return;
+        iisuWorking = true;
+        updateIisuActionButton();
+        executor.execute(() -> {
+            IisuSupportManager.Result result = iisuSupportManager.inject(tree);
+            runOnUiThread(() -> {
+                iisuWorking = false;
+                iisuStatus = result.status;
+                iisuStatusMessage = result.message;
+                if (currentScreen == Screen.LIBRARY) renderLibrary(); else showSettings();
+                Toast.makeText(this, result.message,
+                        result.status == IisuSupportManager.Status.ERROR
+                                ? Toast.LENGTH_LONG : Toast.LENGTH_SHORT).show();
+            });
+        });
+    }
+
+    private void scanIisuSupportAfterSelection() {
+        Uri tree = preferences.iisuTree();
+        if (tree == null) return;
+        iisuStatus = IisuSupportManager.Status.CHECKING;
+        iisuWorking = true;
+        if (currentScreen == Screen.LIBRARY) renderLibrary(); else showSettings();
+        executor.execute(() -> {
+            IisuSupportManager.Result result = iisuSupportManager.scan(tree);
+            runOnUiThread(() -> {
+                iisuWorking = false;
+                iisuStatus = result.status;
+                iisuStatusMessage = result.message;
+                if (currentScreen == Screen.LIBRARY) renderLibrary(); else showSettings();
+                if (result.status == IisuSupportManager.Status.ERROR) {
+                    Toast.makeText(this, result.message, Toast.LENGTH_LONG).show();
+                }
+            });
+        });
+    }
+
     private void generateShortcut(Game game) {
         Uri outputTree = preferences.outputTree();
         if (outputTree == null) {
@@ -1192,6 +1300,19 @@ public final class MainActivity extends Activity {
             } else if (shouldExport && libraryResult != null && libraryResult.isReady()) {
                 exportAllToFolder(uri, new ArrayList<>(libraryResult.games));
             }
+        } else if (requestCode == REQUEST_IISU_TREE) {
+            try {
+                getContentResolver().takePersistableUriPermission(
+                        uri,
+                        Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                );
+            } catch (SecurityException ignored) {
+                Toast.makeText(this, "This iiSU folder cannot be remembered", Toast.LENGTH_LONG).show();
+                return;
+            }
+            preferences.setIisuTree(uri);
+            Toast.makeText(this, "iiSU folder selected", Toast.LENGTH_SHORT).show();
+            scanIisuSupportAfterSelection();
         } else if (requestCode == REQUEST_CUSTOM_ICON && pendingCustomIconGame != null) {
             Game game = pendingCustomIconGame;
             pendingCustomIconGame = null;
@@ -1401,9 +1522,46 @@ public final class MainActivity extends Activity {
         return preferences.outputTree() == null ? "Optional  ›" : "Change  ›";
     }
 
+    private String iisuActionLabel() {
+        if (preferences.iisuTree() == null) return "Select iiSU folder";
+        if (iisuWorking || iisuStatus == IisuSupportManager.Status.CHECKING) {
+            return "Checking iiSU support…";
+        }
+        if (iisuStatus == IisuSupportManager.Status.IMPORTED) {
+            return "✓ JoiPlay support imported";
+        }
+        return "Import JoiPlay Support into iiSU";
+    }
+
+    private void updateIisuActionButton() {
+        if (iisuActionButton == null) return;
+        iisuActionButton.setText(iisuActionLabel());
+        iisuActionButton.setEnabled(!iisuWorking && iisuStatus != IisuSupportManager.Status.CHECKING);
+        iisuActionButton.setAlpha(iisuActionButton.isEnabled() ? 1f : 0.72f);
+        iisuActionButton.setContentDescription(iisuActionLabel());
+    }
+
+    private String iisuSettingValue() {
+        if (preferences.iisuTree() == null) return "Select  ›";
+        if (iisuWorking || iisuStatus == IisuSupportManager.Status.CHECKING) return "Checking…";
+        if (iisuStatus == IisuSupportManager.Status.IMPORTED) return "Imported  ✓";
+        if (iisuStatus == IisuSupportManager.Status.ERROR) return "Needs attention";
+        return "Change  ›";
+    }
+
     private String outputPathLabel() {
-        Uri tree = preferences.outputTree();
-        if (tree == null) return "No default folder — you can still generate files";
+        return treePathLabel(preferences.outputTree(), "No default folder — you can still generate files");
+    }
+
+    private String iisuPathLabel() {
+        if (preferences.iisuTree() != null && iisuStatus == IisuSupportManager.Status.ERROR) {
+            return iisuStatusMessage;
+        }
+        return treePathLabel(preferences.iisuTree(), "Select the iiSU folder that contains iiSULauncher");
+    }
+
+    private String treePathLabel(Uri tree, String fallback) {
+        if (tree == null) return fallback;
         try {
             String documentId = DocumentsContract.getTreeDocumentId(tree);
             int separator = documentId.indexOf(':');
@@ -1479,7 +1637,7 @@ public final class MainActivity extends Activity {
         try {
             return getPackageManager().getPackageInfo(getPackageName(), 0).versionName;
         } catch (Exception ignored) {
-            return "1.1.0";
+            return "1.2.0";
         }
     }
 
