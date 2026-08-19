@@ -1,11 +1,14 @@
 package dev.pryxo.joiplayshortcuts;
 
+import android.app.backup.BackupManager;
 import android.content.Context;
 import android.content.SharedPreferences;
 import android.net.Uri;
 
 import java.util.Collections;
+import java.util.EnumSet;
 import java.util.HashSet;
+import java.util.Map;
 import java.util.Set;
 
 public final class AppPreferences {
@@ -16,7 +19,7 @@ public final class AppPreferences {
     public enum TapAction { LAUNCH, DETAILS }
     public enum ViewMode { LIST, GRID }
 
-    private static final String FILE = "settings";
+    static final String FILE = "settings";
     private static final String THEME = "theme";
     private static final String ACCENT = "accent";
     private static final String FORMAT = "shortcut_format";
@@ -26,12 +29,18 @@ public final class AppPreferences {
     private static final String SHOW_FOLDERS = "show_folder_entries";
     private static final String VIEW_MODE = "view_mode";
     private static final String GENERATED_IDS = "generated_ids";
+    private static final String GENERATED_JP_IDS = "generated_jp_ids";
+    private static final String GENERATED_JOIPLAY_IDS = "generated_joiplay_ids";
     private static final String CUSTOM_ICON_PREFIX = "custom_icon_";
 
     private final SharedPreferences preferences;
+    private final BackupManager backupManager;
 
     public AppPreferences(Context context) {
-        preferences = context.getSharedPreferences(FILE, Context.MODE_PRIVATE);
+        Context appContext = context.getApplicationContext();
+        preferences = appContext.getSharedPreferences(FILE, Context.MODE_PRIVATE);
+        backupManager = new BackupManager(appContext);
+        migrateGeneratedIds();
     }
 
     public ThemeMode theme() {
@@ -39,7 +48,7 @@ public final class AppPreferences {
     }
 
     public void setTheme(ThemeMode mode) {
-        preferences.edit().putString(THEME, mode.name()).apply();
+        save(preferences.edit().putString(THEME, mode.name()));
     }
 
     public AccentColor accentColor() {
@@ -47,7 +56,7 @@ public final class AppPreferences {
     }
 
     public void setAccentColor(AccentColor color) {
-        preferences.edit().putString(ACCENT, color.name()).apply();
+        save(preferences.edit().putString(ACCENT, color.name()));
     }
 
     public ShortcutFormat shortcutFormat() {
@@ -57,7 +66,7 @@ public final class AppPreferences {
     }
 
     public void setShortcutFormat(ShortcutFormat format) {
-        preferences.edit().putString(FORMAT, format.name()).apply();
+        save(preferences.edit().putString(FORMAT, format.name()));
     }
 
     public SortOrder sortOrder() {
@@ -65,7 +74,7 @@ public final class AppPreferences {
     }
 
     public void setSortOrder(SortOrder order) {
-        preferences.edit().putString(SORT, order.name()).apply();
+        save(preferences.edit().putString(SORT, order.name()));
     }
 
     public TapAction tapAction() {
@@ -73,7 +82,7 @@ public final class AppPreferences {
     }
 
     public void setTapAction(TapAction action) {
-        preferences.edit().putString(TAP, action.name()).apply();
+        save(preferences.edit().putString(TAP, action.name()));
     }
 
     public Uri outputTree() {
@@ -84,7 +93,7 @@ public final class AppPreferences {
     public void setOutputTree(Uri uri) {
         SharedPreferences.Editor editor = preferences.edit();
         if (uri == null) editor.remove(TREE_URI); else editor.putString(TREE_URI, uri.toString());
-        editor.apply();
+        save(editor);
     }
 
     public boolean showFolderEntries() {
@@ -92,7 +101,7 @@ public final class AppPreferences {
     }
 
     public void setShowFolderEntries(boolean show) {
-        preferences.edit().putBoolean(SHOW_FOLDERS, show).apply();
+        save(preferences.edit().putBoolean(SHOW_FOLDERS, show));
     }
 
     public ViewMode viewMode() {
@@ -100,7 +109,7 @@ public final class AppPreferences {
     }
 
     public void setViewMode(ViewMode mode) {
-        preferences.edit().putString(VIEW_MODE, mode.name()).apply();
+        save(preferences.edit().putString(VIEW_MODE, mode.name()));
     }
 
     public Uri customIcon(String gameId) {
@@ -112,37 +121,76 @@ public final class AppPreferences {
         SharedPreferences.Editor editor = preferences.edit();
         String key = CUSTOM_ICON_PREFIX + gameId;
         if (uri == null) editor.remove(key); else editor.putString(key, uri.toString());
-        editor.apply();
+        save(editor);
     }
 
     public boolean isShortcutGenerated(String gameId) {
-        return generatedShortcutIds().contains(gameId);
+        return !generatedFormats(gameId).isEmpty();
     }
 
-    public Set<String> generatedShortcutIds() {
-        Set<String> stored = preferences.getStringSet(GENERATED_IDS, Collections.emptySet());
+    public boolean isShortcutGenerated(String gameId, ShortcutFormat format) {
+        return generatedShortcutIds(format).contains(gameId);
+    }
+
+    public EnumSet<ShortcutFormat> generatedFormats(String gameId) {
+        EnumSet<ShortcutFormat> formats = EnumSet.noneOf(ShortcutFormat.class);
+        if (gameId == null || gameId.isEmpty()) return formats;
+        for (ShortcutFormat format : ShortcutFormat.values()) {
+            if (isShortcutGenerated(gameId, format)) formats.add(format);
+        }
+        return formats;
+    }
+
+    public Set<String> generatedShortcutIds(ShortcutFormat format) {
+        Set<String> stored = preferences.getStringSet(generatedKey(format), Collections.emptySet());
         return stored == null ? new HashSet<>() : new HashSet<>(stored);
     }
 
-    public void markShortcutGenerated(String gameId) {
+    public void markShortcutGenerated(String gameId, ShortcutFormat format) {
         if (gameId == null || gameId.isEmpty()) return;
-        Set<String> ids = generatedShortcutIds();
+        Set<String> ids = generatedShortcutIds(format);
         ids.add(gameId);
-        preferences.edit().putStringSet(GENERATED_IDS, ids).apply();
+        save(preferences.edit().putStringSet(generatedKey(format), ids));
     }
 
-    public void markShortcutsGenerated(Set<String> gameIds) {
+    public void markShortcutsGenerated(Set<String> gameIds, ShortcutFormat format) {
         if (gameIds == null || gameIds.isEmpty()) return;
-        Set<String> ids = generatedShortcutIds();
+        Set<String> ids = generatedShortcutIds(format);
         ids.addAll(gameIds);
-        preferences.edit().putStringSet(GENERATED_IDS, ids).apply();
+        save(preferences.edit().putStringSet(generatedKey(format), ids));
     }
 
-    public void replaceGeneratedShortcuts(Set<String> gameIds) {
-        Set<String> ids = gameIds == null ? new HashSet<>() : new HashSet<>(gameIds);
-        ids.remove(null);
-        ids.remove("");
-        preferences.edit().putStringSet(GENERATED_IDS, ids).apply();
+    public void replaceGeneratedShortcuts(Map<ShortcutFormat, Set<String>> idsByFormat) {
+        SharedPreferences.Editor editor = preferences.edit();
+        for (ShortcutFormat format : ShortcutFormat.values()) {
+            Set<String> source = idsByFormat == null ? null : idsByFormat.get(format);
+            Set<String> ids = source == null ? new HashSet<>() : new HashSet<>(source);
+            ids.remove(null);
+            ids.remove("");
+            editor.putStringSet(generatedKey(format), ids);
+        }
+        editor.remove(GENERATED_IDS);
+        save(editor);
+    }
+
+    private void migrateGeneratedIds() {
+        if (!preferences.contains(GENERATED_IDS)) return;
+        Set<String> legacy = preferences.getStringSet(GENERATED_IDS, Collections.emptySet());
+        SharedPreferences.Editor editor = preferences.edit().remove(GENERATED_IDS);
+        if (legacy != null && !legacy.isEmpty()) {
+            Set<String> current = generatedShortcutIds(shortcutFormat());
+            current.addAll(legacy);
+            editor.putStringSet(generatedKey(shortcutFormat()), current);
+        }
+        save(editor);
+    }
+
+    private static String generatedKey(ShortcutFormat format) {
+        return format == ShortcutFormat.JOIPLAY ? GENERATED_JOIPLAY_IDS : GENERATED_JP_IDS;
+    }
+
+    private void save(SharedPreferences.Editor editor) {
+        if (editor.commit()) backupManager.dataChanged();
     }
 
     private static <T extends Enum<T>> T enumValue(Class<T> type, String value, T fallback) {

@@ -48,11 +48,9 @@ import android.widget.Toast;
 import java.text.DateFormat;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Collections;
 import java.util.Date;
 import java.util.List;
 import java.util.Locale;
-import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -247,12 +245,15 @@ public final class MainActivity extends Activity {
             JoiPlayRepository.Result result = repository.load(includeFolders, sort);
             if (result.isReady()) {
                 Uri outputTree = preferences.outputTree();
-                Set<String> existing = outputTree == null
-                        ? Collections.emptySet()
-                        : exporter.findExisting(outputTree, result.games, preferences.shortcutFormat());
-                // The folder scan is authoritative. Replacing the snapshot also
-                // removes badges for shortcut files deleted outside this app.
-                preferences.replaceGeneratedShortcuts(existing);
+                if (outputTree != null) {
+                    ShortcutExporter.ScanResult existing =
+                            exporter.findExisting(outputTree, result.games);
+                    if (existing.successful) {
+                        // File contents are authoritative, even when a title or
+                        // filename changed since the shortcut was generated.
+                        preferences.replaceGeneratedShortcuts(existing.idsByFormat);
+                    }
+                }
             }
             runOnUiThread(() -> {
                 loading = false;
@@ -411,7 +412,9 @@ public final class MainActivity extends Activity {
         card.addView(Ui.spacer(this, 1, 5));
         card.addView(Ui.text(this, "Tap to launch. Hold any game for details and shortcut tools.", 12, palette.textMuted, false));
         card.addView(Ui.spacer(this, 1, 16));
-        TextView exportAll = Ui.pillButton(this, palette, "Generate all missing shortcut files", true);
+        TextView exportAll = Ui.pillButton(this, palette,
+                "Generate all missing ." + ShortcutFileFactory.extension(preferences.shortcutFormat())
+                        + " shortcut files", true);
         exportAll.setOnClickListener(view -> exportAll(games));
         card.addView(exportAll, Ui.matchWrap());
         return card;
@@ -510,7 +513,7 @@ public final class MainActivity extends Activity {
         details.addView(path);
         if (!game.folderEntry && preferences.isShortcutGenerated(game.id)) {
             details.addView(Ui.spacer(this, 1, 5));
-            details.addView(Ui.text(this, "✓ Shortcut generated", 11, palette.primary, true));
+            details.addView(Ui.text(this, generatedStatusLabel(game.id), 11, palette.primary, true));
         }
         card.addView(details, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
 
@@ -589,7 +592,7 @@ public final class MainActivity extends Activity {
         card.addView(metadata, Ui.matchWrap());
         if (!game.folderEntry && preferences.isShortcutGenerated(game.id)) {
             card.addView(Ui.spacer(this, 1, 8));
-            card.addView(Ui.text(this, "✓ Shortcut generated", 11, palette.primary, true));
+            card.addView(Ui.text(this, generatedStatusLabel(game.id), 11, palette.primary, true));
         }
 
         card.setOnClickListener(view -> {
@@ -627,7 +630,7 @@ public final class MainActivity extends Activity {
                 TextView badge = Ui.text(this, "✓", 12, Color.WHITE, true);
                 badge.setGravity(Gravity.CENTER);
                 badge.setBackground(Ui.rounded(this, palette.primary, 12));
-                badge.setContentDescription("Shortcut generated");
+                badge.setContentDescription(generatedStatusLabel(game.id));
                 FrameLayout.LayoutParams badgeParams = new FrameLayout.LayoutParams(
                         Ui.dp(this, 26), Ui.dp(this, 26), Gravity.TOP | Gravity.END);
                 badgeParams.setMargins(0, Ui.dp(this, 6), Ui.dp(this, 6), 0);
@@ -803,7 +806,8 @@ public final class MainActivity extends Activity {
         if (!game.version.isEmpty()) sheet.addView(metadataLine("Version", game.version));
         if (game.date > 0) sheet.addView(metadataLine("Added", formatDate(game.date)));
         if (!game.folderEntry) sheet.addView(metadataLine("Shortcut",
-                preferences.isShortcutGenerated(game.id) ? "Generated ✓" : "Not generated"));
+                preferences.isShortcutGenerated(game.id)
+                        ? generatedFormatsLabel(game.id) + " generated ✓" : "Not generated"));
         sheet.addView(Ui.spacer(this, 1, 18));
 
         Dialog dialog = bottomDialog(sheet);
@@ -1022,7 +1026,7 @@ public final class MainActivity extends Activity {
             try {
                 exporter.writeToTree(outputTree, game, preferences.shortcutFormat());
                 runOnUiThread(() -> {
-                    preferences.markShortcutGenerated(game.id);
+                    preferences.markShortcutGenerated(game.id, preferences.shortcutFormat());
                     Toast.makeText(this, "Shortcut generated", Toast.LENGTH_SHORT).show();
                     if (currentScreen == Screen.LIBRARY) renderLibrary();
                 });
@@ -1054,10 +1058,25 @@ public final class MainActivity extends Activity {
     private void exportAllToFolder(Uri tree, List<Game> games) {
         Toast.makeText(this, "Generating " + games.size() + " shortcuts…", Toast.LENGTH_SHORT).show();
         executor.execute(() -> {
-            ShortcutExporter.ExportSummary summary = exporter.writeAll(tree, games, preferences.shortcutFormat());
+            AppPreferences.ShortcutFormat format = preferences.shortcutFormat();
+            ShortcutExporter.ScanResult existing = exporter.findExisting(tree, games);
+            if (existing.successful) {
+                preferences.replaceGeneratedShortcuts(existing.idsByFormat);
+            }
+            ArrayList<Game> missing = new ArrayList<>();
+            for (Game game : games) {
+                if (game.folderEntry || game.id.isEmpty()) continue;
+                if (!existing.successful || !preferences.isShortcutGenerated(game.id, format)) {
+                    missing.add(game);
+                }
+            }
+            ShortcutExporter.ExportSummary summary = exporter.writeAll(tree, missing, format);
             runOnUiThread(() -> {
-                preferences.markShortcutsGenerated(summary.writtenGameIds);
-                String message = summary.written + " shortcuts generated";
+                preferences.markShortcutsGenerated(summary.writtenGameIds, format);
+                String extension = "." + ShortcutFileFactory.extension(format);
+                String message = missing.isEmpty()
+                        ? "All " + extension + " shortcuts already exist"
+                        : summary.written + " " + extension + " shortcuts generated";
                 if (summary.failed > 0) message += " · " + summary.failed + " failed";
                 Toast.makeText(this, message, summary.failed > 0 ? Toast.LENGTH_LONG : Toast.LENGTH_SHORT).show();
                 if (currentScreen == Screen.LIBRARY) renderLibrary();
@@ -1137,7 +1156,7 @@ public final class MainActivity extends Activity {
                 try {
                     exporter.writeDocument(uri, game, preferences.shortcutFormat());
                     runOnUiThread(() -> {
-                        preferences.markShortcutGenerated(game.id);
+                        preferences.markShortcutGenerated(game.id, preferences.shortcutFormat());
                         Toast.makeText(this, "Shortcut generated", Toast.LENGTH_SHORT).show();
                         if (currentScreen == Screen.LIBRARY) renderLibrary();
                     });
@@ -1153,6 +1172,7 @@ public final class MainActivity extends Activity {
                             Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION
                     );
                     preferences.setOutputTree(uri);
+                    if (!exportAllAfterFolderSelection) libraryResult = null;
                 } catch (SecurityException ignored) {
                     Toast.makeText(this, "This folder cannot be remembered", Toast.LENGTH_LONG).show();
                 }
@@ -1247,7 +1267,7 @@ public final class MainActivity extends Activity {
         sheet.addView(Ui.text(this, "Privacy by design", 21, palette.text, true));
         sheet.addView(Ui.spacer(this, 1, 12));
         TextView text = Ui.text(this,
-                "JoiPlay Shortcut Generator has no Internet permission, analytics, ads, or accounts. It reads the sanitized game list exposed by the modified JoiPlay provider and writes shortcut files only to a folder or document you choose. Settings remain on this device.",
+                "JoiPlay Shortcut Generator has no Internet permission, analytics, ads, or accounts. It reads the sanitized game list exposed by the modified JoiPlay provider and writes shortcut files only to a folder or document you choose. When device backup is enabled, Android can back up and restore the app settings.",
                 14,
                 palette.textMuted,
                 false
@@ -1284,6 +1304,20 @@ public final class MainActivity extends Activity {
 
     private String formatLabel() {
         return "." + ShortcutFileFactory.extension(preferences.shortcutFormat()) + "  ›";
+    }
+
+    private String generatedStatusLabel(String gameId) {
+        return "✓ Shortcut generated (" + generatedFormatsLabel(gameId) + ")";
+    }
+
+    private String generatedFormatsLabel(String gameId) {
+        ArrayList<String> labels = new ArrayList<>();
+        for (AppPreferences.ShortcutFormat format : AppPreferences.ShortcutFormat.values()) {
+            if (preferences.isShortcutGenerated(gameId, format)) {
+                labels.add("." + ShortcutFileFactory.extension(format));
+            }
+        }
+        return TextUtils.join(", ", labels);
     }
 
     private String sortLabel() {
@@ -1382,7 +1416,7 @@ public final class MainActivity extends Activity {
         try {
             return getPackageManager().getPackageInfo(getPackageName(), 0).versionName;
         } catch (Exception ignored) {
-            return "1.0.1";
+            return "1.1.0";
         }
     }
 

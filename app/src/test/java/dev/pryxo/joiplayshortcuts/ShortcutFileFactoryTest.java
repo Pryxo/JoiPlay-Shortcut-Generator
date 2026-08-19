@@ -51,4 +51,18 @@ public final class ShortcutFileFactoryTest {
         assertEquals("JoiPlay Game", ShortcutFileFactory.sanitizeFileName("<>:*?"));
         assertTrue(ShortcutFileFactory.sanitizeFileName("x".repeat(200)).length() <= 120);
     }
+
+    @Test
+    public void detectsBothShortcutExtensionsAndProviderTxtSuffixes() {
+        assertEquals(AppPreferences.ShortcutFormat.JP,
+                ShortcutFileFactory.formatFromFileName("Pokémon Uranium.JP"));
+        assertEquals(AppPreferences.ShortcutFormat.JOIPLAY,
+                ShortcutFileFactory.formatFromFileName("Pokemon Rejuvenation.joiplay.txt"));
+        assertEquals(null, ShortcutFileFactory.formatFromFileName("notes.txt"));
+    }
+
+    @Test
+    public void normalizesIdsReadFromExistingShortcutFiles() {
+        assertEquals("3b6d-123", ShortcutFileFactory.normalizedId("\uFEFF3b6d-123\r\n"));
+    }
 }

@@ -25,6 +25,23 @@ public final class ShortcutFileFactory {
         return game.id;
     }
 
+    public static AppPreferences.ShortcutFormat formatFromFileName(String fileName) {
+        if (fileName == null) return null;
+        String normalized = fileName.trim().toLowerCase(java.util.Locale.ROOT);
+        if (normalized.endsWith(".txt")) {
+            normalized = normalized.substring(0, normalized.length() - 4);
+        }
+        if (normalized.endsWith(".joiplay")) return AppPreferences.ShortcutFormat.JOIPLAY;
+        if (normalized.endsWith(".jp")) return AppPreferences.ShortcutFormat.JP;
+        return null;
+    }
+
+    public static String normalizedId(String contents) {
+        if (contents == null) return "";
+        String normalized = contents.startsWith("\uFEFF") ? contents.substring(1) : contents;
+        return normalized.trim();
+    }
+
     public static String sanitizeFileName(String input) {
         String normalized = Normalizer.normalize(input == null ? "" : input, Normalizer.Form.NFKC);
         String cleaned = normalized.replaceAll("[<>:\"/\\\\|?*\\x00-\\x1F]", "")

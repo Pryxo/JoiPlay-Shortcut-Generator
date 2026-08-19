@@ -52,10 +52,12 @@ Release builds are unsigned unless Android signing is configured locally.
 - Reads the game list exposed by a compatible modified JoiPlay build.
 - Launches games and displays their artwork and useful library details.
 - Generates `.jp` and `.joiplay` shortcut files for compatible frontends.
-- Rechecks the chosen output folder on launch and refresh, including a live
-  generated/total count in the Library tab.
+- Rechecks `.jp` and `.joiplay` files by their JoiPlay ID on launch and refresh,
+  including format-specific badges and a live generated/total count.
 - Offers list/grid views, sorting, themes, custom icons, and configurable tap
   behavior.
+- Requests an Android settings backup after every change so supported devices
+  can restore preferences when the app is reinstalled.
 
 ## Frontend shortcut formats
 
