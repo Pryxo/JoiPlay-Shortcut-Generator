@@ -71,7 +71,7 @@ the existing JoiPlay app, and then install the included APK.
 
 1. In JoiPlay Shortcut Generator, open **Settings** or select **Select iiSU
    folder** in the Library header.
-2. Select the iiSU root folder that contains the `iiSULauncher` folder.
+2. Select the iiSU root folder that contains the `iiSULauncher` folder. (/Android/media/com.iisulauncher)
 3. Select **Import JoiPlay Support into iiSU** and wait for **JoiPlay support
    imported** to appear.
 4. In iiSU, open the **Platform** tab, choose **Menu** > **Add Console**, and add
